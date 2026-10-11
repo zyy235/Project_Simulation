@@ -1,0 +1,32 @@
+CPP      = g++.exe
+CC       = gcc.exe
+WINDRES  = windres.exe
+RES      = ../Project_Simulation/Project_Simulation_private.res
+OBJ      = ../Project_Simulation/main.o $(RES) \
+           imgui.o imgui_draw.o imgui_impl_dx11.o \
+           imgui_impl_win32.o imgui_tables.o imgui_widgets.o
+LINKOBJ  = $(OBJ)
+LIBS     = -lole32 -ld3dcompiler_47 -ldwmapi -ld3d11 -ldxgi -lwindowscodecs \
+           -luser32 -lgdi32 -limm32 -lwinmm -lcomdlg32 -loleaut32 -mwindows
+INCS     = 
+CXXINCS  = 
+BIN      = "Project Simulation.exe"
+CXXFLAGS = $(CXXINCS) -Wall -Wextra -std=c++20
+CFLAGS   = $(INCS) -Wall -Wextra -std=c++20
+RM       = rm.exe -f
+
+.PHONY: all all-before all-after clean clean-custom
+
+all: all-before $(BIN) all-after
+
+clean: clean-custom
+	${RM} $(OBJ) $(BIN)
+
+$(BIN): $(OBJ)
+	$(CPP) $(LINKOBJ) -o $(BIN) $(LIBS)
+
+../Project_Simulation/main.o: main.cpp
+	$(CPP) -c main.cpp -o ../Project_Simulation/main.o $(CXXFLAGS)
+
+../Project_Simulation/Project_Simulation_private.res: Project_Simulation_private.rc 
+	$(WINDRES) -i Project_Simulation_private.rc --input-format=rc -o ../Project_Simulation/Project_Simulation_private.res -O coff
