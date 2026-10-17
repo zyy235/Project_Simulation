@@ -199,7 +199,7 @@ static void log_line(const std::string& s) {
 // layer = 2: x = 10^(10^val), etc.
 // sign = false: 1/x.
 // neg = -1: negative number.
-// Construction: _to_Number(x).
+// Construction: x.
 // ----------------------------------------------------------------------
 class Real {
 	public:
@@ -298,8 +298,10 @@ class Real {
 		[[nodiscard]] Real dilate(const Real& exp) const;
 		[[nodiscard]] Real tetrate(const Real& exp) const;
 		[[nodiscard]] Real tetrate(const Real& exp, const Real& layer) const;
-		
-		[[nodiscard]] Real abs() const { return Real(1, this->val, this->layer); }
+
+		[[nodiscard]] Real abs() const {
+			return Real(1, this->val, this->layer);
+		}
 
 		// ---------- Transform ----------
 		long double _to_long_double() const;
@@ -356,77 +358,38 @@ void Real::normalize_inplace() {
 	}
 }
 
-/*
-// Converts any kind of arithmetic (std::is_arithmetic_v<T>) numbers
-// into Real.
-template<typename T>
-Real _to_Number(T x) {
-	if constexpr (std::is_same_v<T, Real>) return x;
-	else if constexpr (std::is_arithmetic_v<T>) {
-		Real n;
-		if (x == 0 || std::isnan(x)) return n;
-		if (x < 0) {
-			n.neg = -1;
-			x = -x;
-		}
-		if (std::isinf(x)) {
-			n.layer = UINT64_MAX;
-			n.val = 10.0L;
-			return n;
-		}
-		if (x < 1) {
-			n.sign = false;
-			x = 1.0L / x;
-		}
-		n.layer = 0;
-		n.val   = x;
-		while (n.val >= 10.0L) {
-			n.val = log10l(n.val);
-			n.layer++;
-		}
-		return n;
-	} else {
-		return Real(true, 0, 0);
-	}
-}
-
-*/
-
 class Number;
 
 template<typename T>
 Real _to_Real(const T& x) {
-    using U = std::decay_t<T>;
+	using U = std::decay_t<T>;
 
-    if constexpr (std::is_same_v<U, Real>) {
-        return x;
-    }
-    else if constexpr (std::is_same_v<U, Number>) {
-        return x.r;
-    }
-    else if constexpr (std::is_arithmetic_v<U>) {
-        long double v = static_cast<long double>(x);
-        if (v == 0.0L || std::isnan(v)) return Real();
-        bool neg = v < 0.0L;
-        if (neg) v = -v;
-        if (std::isinf(v)) {
-            Real r;
-            r.neg   = neg ? -1 : 1;
-            r.layer = UINT64_MAX;
-            r.val   = 10.0L;
-            return r;
-        }
-        return Real(true, neg ? -1 : 1, v, 0.0L).normalize();
-    }
-    else {
-        return Real();
-    }
+	if constexpr (std::is_same_v<U, Real>) {
+		return x;
+	} else if constexpr (std::is_same_v<U, Number>) {
+		return x.r;
+	} else if constexpr (std::is_arithmetic_v<U>) {
+		long double v = static_cast<long double>(x);
+		if (v == 0.0L || std::isnan(v)) return Real();
+		bool neg = v < 0.0L;
+		if (neg) v = -v;
+		if (std::isinf(v)) {
+			Real r;
+			r.neg   = neg ? -1 : 1;
+			r.layer = UINT64_MAX;
+			r.val   = 10.0L;
+			return r;
+		}
+		return Real(true, neg ? -1 : 1, v, 0.0L).normalize();
+	} else {
+		return Real();
+	}
 }
 
 
 // Returns e^x.
 static Real real_exp(const Real& x) {
-    return TEN.pow(x * _to_Real(LD_LOG10E));
+	return TEN.pow(x * _to_Real(LD_LOG10E));
 }
 
 // Comparing absolute value.
@@ -623,7 +586,7 @@ Real Real::operator-(const Real& other) const {
 	return (*this) + b;
 }
 
-// log10(x)£ºReduce layer by 1, log10 if layer = 0.
+// log10(x) : Reduce layer by 1, log10 if layer = 0.
 Real Real::log10_of(const Real& x) {
 	Real r = x.normalize();
 	if (r.is_zero() || r.neg < 0) return Real();
@@ -697,21 +660,21 @@ Real Real::pow10_of(const Real& x) {
 }
 
 Real Real::operator*(const Real& other) const {
-    Real a = normalize(), b = other.normalize();
-    if (a.is_zero() || b.is_zero()) return Real();
+	Real a = normalize(), b = other.normalize();
+	if (a.is_zero() || b.is_zero()) return Real();
 
-    int rn = a.neg * b.neg;
+	int rn = a.neg * b.neg;
 
-    a.neg = 1;
-    b.neg = 1;
+	a.neg = 1;
+	b.neg = 1;
 
-    Real la = log10_of(a);
-    Real lb = log10_of(b);
-    Real s  = la + lb;
-    Real r  = pow10_of(s);
+	Real la = log10_of(a);
+	Real lb = log10_of(b);
+	Real s  = la + lb;
+	Real r  = pow10_of(s);
 
-    r.neg = rn;
-    return r.normalize();
+	r.neg = rn;
+	return r.normalize();
 }
 
 Real Real::operator/(const Real& other) const {
@@ -870,6 +833,10 @@ std::string Real::toString() const {
 				m *= 10.0L;
 				e -= 1.0L;
 			}
+			if (m >= 9.9995L) {  // rounds up to "10.000" at 3 dp -> renormalise mantissa
+				m = 1.0L;
+				e += 1.0L;
+			}
 			std::string s = fmt_mantissa(m) + "e" + fmt_int(e);
 			if (v < 0) s = "-" + s;
 			return s;
@@ -877,22 +844,32 @@ std::string Real::toString() const {
 	}
 
 	if (a.val < 15.0L && a.layer <= 64) {
-        long double exp0 = powl(10.0L, a.val);
-        long double e    = floorl(exp0);
-        long double m    = powl(10.0L, exp0 - e);
-        if (m >= 9.99L) { m /= 10.0L; e += 1.0L; }
-        if (m <  1.0L)  { m *= 10.0L; e -= 1.0L; }
-        if (!a.sign) oss << "1/";
-        for (uint64_t i = 0; i + 2 < a.layer; ++i) oss << "e";
-        oss << fmt_mantissa(m) << "e" << fmt_int(e);
-    } else if (a.layer <= 8) {
-        if (!a.sign) oss << "1/";
-        for (uint64_t i = 0; i < a.layer - 1; ++i) oss << "e";
-        oss << "e" << fmt_mantissa(a.val);
-    } else {
-        if (!a.sign) oss << "1/";
-        oss << "N(" << fmt_mantissa(a.val) << "," << a.layer << ")";
-    }
+		long double exp0 = powl(10.0L, a.val);
+		long double e    = floorl(exp0);
+		long double m    = powl(10.0L, exp0 - e);
+		if (m >= 9.99L) {
+			m /= 10.0L;
+			e += 1.0L;
+		}
+		if (m <  1.0L)  {
+			m *= 10.0L;
+			e -= 1.0L;
+		}
+		if (m >= 9.9995L) {  // rounds up to "10.000" at 3 dp -> renormalise mantissa
+			m = 1.0L;
+			e += 1.0L;
+		}
+		if (!a.sign) oss << "1/";
+		for (uint64_t i = 0; i + 2 < a.layer; ++i) oss << "e";
+		oss << fmt_mantissa(m) << "e" << fmt_int(e);
+	} else if (a.layer <= 8) {
+		if (!a.sign) oss << "1/";
+		for (uint64_t i = 0; i < a.layer - 1; ++i) oss << "e";
+		oss << "e" << fmt_mantissa(a.val);
+	} else {
+		if (!a.sign) oss << "1/";
+		oss << "N(" << fmt_mantissa(a.val) << "," << a.layer << ")";
+	}
 
 	std::string s = oss.str();
 	if (a.neg < 0) s = "-" + s;
@@ -954,193 +931,407 @@ Real floor(const Real& a) {
 // Each part is a Real (the previous "Number" class).
 // ============================================================
 class Number {
-public:
-    Real r;   // Real part
-    Real i;   // Imaginary part
+	public:
+		Real r;   // Real part
+		Real i;   // Imaginary part
 
-    // ---------- Construction ----------
-    Number() : r(ZERO), i(ZERO) {}
-    Number(const Real& re)               : r(re),     i(ZERO) {}
-    Number(const Real& re, const Real& im) : r(re),   i(im)    {}
-    Number(long double re)               : r(re),     i(ZERO) {}
-    Number(long double re, long double im): r(re),    i(im)    {}
+		// ---------- Construction ----------
+		Number() : r(ZERO), i(ZERO) {}
+		Number(const Real& re)               : r(re),     i(ZERO) {}
+		Number(const Real& re, const Real& im) : r(re),   i(im)    {}
+		Number(long double re)               : r(re),     i(ZERO) {}
+		Number(long double re, long double im): r(re),    i(im)    {}
 
-    // ---------- Predicates ----------
-    bool is_zero()    const { return r.is_zero() && i.is_zero(); }
-    bool is_real()    const { return i.is_zero(); }
-    bool is_imag()    const { return r.is_zero() && !i.is_zero(); }
-    bool is_one()     const { return r.is_one()  && i.is_zero(); }
-    [[nodiscard]] bool is_negative() const;
-    [[nodiscard]] bool is_positive() const;
+		Number(const Number& other) = default;
 
-    // ---------- Helpers ----------
-    [[nodiscard]] Number conj() const { return Number(r, ZERO - i); }
-    [[nodiscard]] Real  abs_sq() const { return r*r + i*i; }
+		// ---------- Predicates ----------
+		bool is_zero()    const {
+			return r.is_zero() && i.is_zero();
+		}
+		bool is_real()    const {
+			return i.is_zero();
+		}
+		bool is_imag()    const {
+			return r.is_zero() && !i.is_zero();
+		}
+		bool is_one()     const {
+			return r.is_one()  && i.is_zero();
+		}
+		[[nodiscard]] bool is_negative() const;
+		[[nodiscard]] bool is_positive() const;
 
-    [[nodiscard]] Real abs() const {
-        if (i.is_zero()) {
-            Real a = r; if (a.is_negative()) a.neg = 1;
-            return a;
-        }
-        return abs_sq().pow(_to_Real(0.5L));
-    }
+		// ---------- Helpers ----------
+		[[nodiscard]] Number conj() const {
+			return Number(r, ZERO - i);
+		}
+		[[nodiscard]] Real  abs_sq() const {
+			return r*r + i*i;
+		}
 
-    [[nodiscard]] Real arg() const;   // in (-pi, pi]
-    
-    [[nodiscard]] Number normalize() const;
-	void                normalize_inplace();
+		[[nodiscard]] Real abs() const {
+			if (i.is_zero()) {
+				Real a = r;
+				if (a.is_negative()) a.neg = 1;
+				return a;
+			}
+			return abs_sq().pow(_to_Real(0.5L));
+		}
 
-    // ---------- Arithmetic ----------
-    Number operator+(const Number& o) const { return Number(r + o.r, i + o.i); }
-    Number operator-(const Number& o) const { return Number(r - o.r, i - o.i); }
-    Number operator-()                const { return Number(ZERO - r, ZERO - i); }
+		[[nodiscard]] Real arg() const;   // in (-pi, pi]
 
-    Number operator*(const Number& o) const {
-        // (a+bi)(c+di) = (ac-bd) + (ad+bc)i
-        return Number(r * o.r - i * o.i, r * o.i + i * o.r);
-    }
+		[[nodiscard]] Number normalize() const;
+		void                normalize_inplace();
 
-    Number operator/(const Number& o) const {
-        Real d = o.abs_sq();
-        if (d.is_zero()) return Number();            // division by 0 ¡ú 0
-        // (a+bi)/(c+di) = [(ac+bd) + (bc-ad)i] / (c2+d2)
-        return Number((r * o.r + i * o.i) / d,
-                      (i * o.r - r * o.i) / d);
-    }
+		// ---------- Arithmetic ----------
+		Number operator+(const Number& o) const {
+			return Number(r + o.r, i + o.i);
+		}
+		Number operator-(const Number& o) const {
+			return Number(r - o.r, i - o.i);
+		}
+		Number operator-()                const {
+			return Number(ZERO - r, ZERO - i);
+		}
 
-    Number& operator+=(const Number& o) { *this = *this + o; return *this; }
-    Number& operator-=(const Number& o) { *this = *this - o; return *this; }
-    Number& operator*=(const Number& o) { *this = *this * o; return *this; }
-    Number& operator/=(const Number& o) { *this = *this / o; return *this; }
-    
-	Number& operator+=(const Real& o) { return *this += Number(o); }
-	Number& operator-=(const Real& o) { return *this -= Number(o); }
-	Number& operator*=(const Real& o) { return *this *= Number(o); }
-	Number& operator/=(const Real& o) { return *this /= Number(o); }
-	
-	template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
-	Number& operator+=(T b) { return *this += Number(_to_Real(b)); }
-	
-	template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
-	Number& operator-=(T b) { return *this -= Number(_to_Real(b)); }
-	
-	template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
-	Number& operator*=(T b) { return *this *= Number(_to_Real(b)); }
-	
-	template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
-	Number& operator/=(T b) { return *this /= Number(_to_Real(b)); }
+		Number operator*(const Number& o) const {
+			// (a+bi)(c+di) = (ac-bd) + (ad+bc)i
+			return Number(r * o.r - i * o.i, r * o.i + i * o.r);
+		}
 
-    bool operator==(const Number& o) const { return r == o.r && i == o.i; }
-    bool operator!=(const Number& o) const { return !(*this == o); }
-    
-    std::partial_ordering operator<=>(const Number& o) const {
-	    if (i.is_zero() && o.i.is_zero()) {
-	        return r <=> o.r;                       // Both R.
-	    }
-	    Real ma = abs();
-	    Real mb = o.abs();
-	    auto c = ma <=> mb;
-	    if (c != 0) return c;                       // |a| != |b|
-	    auto cr = r <=> o.r;
-	    if (cr != 0) return cr;                     // a.r vs. b.r
-	    return i <=> o.i;                           // a.i vs. b.i
-	}
-	
-	[[nodiscard]] long double _to_long_double() const;
+		Number operator/(const Number& o) const {
+			Real d = o.abs_sq();
+			if (d.is_zero()) return Number();            // division by 0 ï¿½ï¿½ 0
+			// (a+bi)/(c+di) = [(ac+bd) + (bc-ad)i] / (c2+d2)
+			return Number((r * o.r + i * o.i) / d,
+			              (i * o.r - r * o.i) / d);
+		}
 
-    // ---------- Exponential / Logarithm / Power ----------
-    [[nodiscard]] Number exp_of() const;                        // e^z
-    [[nodiscard]] Number ln_of()  const;                        // ln(z)
-    [[nodiscard]] Number pow(const Number& exp) const;          // z^w
-    [[nodiscard]] Number log(const Number& base) const;         // log_base(z)
-    [[nodiscard]] Number dilate(const Number& exp) const;
-	[[nodiscard]] Number tetrate(const Number& exp) const;
-	[[nodiscard]] Number tetrate(const Number& exp, const Number& layer) const;
-	
-	Number pow(const Real& exp)  const { return pow(Number(exp)); }
-	Number log(const Real& base) const { return log(Number(base)); }
-	
-	Number dilate(const Real& exp) const { return dilate(Number(exp)); }
-	Number tetrate(const Real& exp) const { return tetrate(Number(exp)); }
-	Number tetrate(const Real& exp, const Real& layer) const {
-	    return tetrate(Number(exp), Number(layer));
-	}
-	
-	[[nodiscard]] Number pow_sum(const Number& other) const;
-	
-	[[nodiscard]] Number floor() const;
+		Number& operator+=(const Number& o) {
+			*this = *this + o;
+			return *this;
+		}
+		Number& operator-=(const Number& o) {
+			*this = *this - o;
+			return *this;
+		}
+		Number& operator*=(const Number& o) {
+			*this = *this * o;
+			return *this;
+		}
+		Number& operator/=(const Number& o) {
+			*this = *this / o;
+			return *this;
+		}
 
-    // ---------- Inverse ----------
-    [[nodiscard]] Number inv() const {
-        Real d = abs_sq();
-        if (d.is_zero()) return Number();
-        return Number(r / d, (ZERO - i) / d);
-    }
+		Number& operator+=(const Real& o) {
+			return *this += Number(o);
+		}
+		Number& operator-=(const Real& o) {
+			return *this -= Number(o);
+		}
+		Number& operator*=(const Real& o) {
+			return *this *= Number(o);
+		}
+		Number& operator/=(const Real& o) {
+			return *this /= Number(o);
+		}
 
-    // ---------- Display ----------
-    [[nodiscard]] std::string toString() const;
-    
-    // ---------- Trigonometry ----------
-    [[nodiscard]] Number sin_of() const;
-	[[nodiscard]] Number cos_of() const;
-	[[nodiscard]] Number tan_of() const;
-	[[nodiscard]] Number cot_of() const;
-	[[nodiscard]] Number sec_of() const;
-	[[nodiscard]] Number csc_of() const;
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
+		Number& operator+=(T b) {
+			return *this += Number(_to_Real(b));
+		}
+
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
+		Number& operator-=(T b) {
+			return *this -= Number(_to_Real(b));
+		}
+
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
+		Number& operator*=(T b) {
+			return *this *= Number(_to_Real(b));
+		}
+
+		template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
+		Number& operator/=(T b) {
+			return *this /= Number(_to_Real(b));
+		}
+
+		bool operator==(const Number& o) const {
+			return r == o.r && i == o.i;
+		}
+		bool operator!=(const Number& o) const {
+			return !(*this == o);
+		}
+
+		std::partial_ordering operator<=>(const Number& o) const {
+			if (i.is_zero() && o.i.is_zero()) {
+				return r <=> o.r;                       // Both R.
+			}
+			Real ma = abs();
+			Real mb = o.abs();
+			auto c = ma <=> mb;
+			if (c != 0) return c;                       // |a| != |b|
+			auto cr = r <=> o.r;
+			if (cr != 0) return cr;                     // a.r vs. b.r
+			return i <=> o.i;                           // a.i vs. b.i
+		}
+
+		[[nodiscard]] long double _to_long_double() const;
+
+		// ---------- Exponential / Logarithm / Power ----------
+		[[nodiscard]] Number exp_of() const;                        // e^z
+		[[nodiscard]] Number ln_of()  const;                        // ln(z)
+		[[nodiscard]] Number pow(const Number& exp) const;          // z^w
+		[[nodiscard]] Number log(const Number& base) const;         // log_base(z)
+		[[nodiscard]] Number dilate(const Number& exp) const;
+		[[nodiscard]] Number tetrate(const Number& exp) const;
+		[[nodiscard]] Number tetrate(const Number& exp, const Number& layer) const;
+
+		//Number pow(const Real& exp)  const { return pow(Number(exp)); }
+		//Number log(const Real& base) const { return log(Number(base)); }
+
+		Number dilate(const Real& exp) const {
+			return dilate(Number(exp));
+		}
+		Number tetrate(const Real& exp) const {
+			return tetrate(Number(exp));
+		}
+		Number tetrate(const Real& exp, const Real& layer) const {
+			return tetrate(Number(exp), Number(layer));
+		}
+
+		[[nodiscard]] Number pow_sum(const Number& other) const;
+
+		[[nodiscard]] Number floor() const;
+
+		// ---------- Inverse ----------
+		[[nodiscard]] Number inv() const {
+			Real d = abs_sq();
+			if (d.is_zero()) return Number();
+			return Number(r / d, (ZERO - i) / d);
+		}
+
+		// ---------- Display ----------
+		[[nodiscard]] std::string toString() const;
+		[[nodiscard]] std::string _to_String_short() const;   // 2 decimals (finite) or compact form (huge).
+
+		// ---------- Trigonometry ----------
+		[[nodiscard]] Number sin_of() const;
+		[[nodiscard]] Number cos_of() const;
+		[[nodiscard]] Number tan_of() const;
+		[[nodiscard]] Number cot_of() const;
+		[[nodiscard]] Number sec_of() const;
+		[[nodiscard]] Number csc_of() const;
 
 };
 
 template<typename T>
-Number _to_Number(T x) {
-    if constexpr (std::is_same_v<T, Number>) {
-        return x;
-    }
-    else if constexpr (std::is_same_v<T, Real>) {
-        return Number(x, ZERO);
-    }
-    else if constexpr (std::is_arithmetic_v<T>) {
-        if (x == 0 || std::isnan((long double)x)) return Number();
-        if (x < 0) {
-            long double a = -(long double)x;
-            if (std::isinf(a)) return Number(Real(false, -1, 10.0L, (long double)UINT64_MAX), ZERO);
-            return Number(Real(true, -1, a, 0.0L).normalize(), ZERO);
-        }
-        long double a = (long double)x;
-        if (std::isinf(a)) return Number(Real(false, 1, 10.0L, (long double)UINT64_MAX), ZERO);
-        return Number(Real(true, 1, a, 0.0L).normalize(), ZERO);
-    }
-    else {
-        return Number();
-    }
+Number _to_Number (T x) {
+	if constexpr (std::is_same_v<T, Number>) {
+		return x;
+	} else if constexpr (std::is_same_v<T, Real>) {
+		return Number(x, ZERO);
+	} else if constexpr (std::is_arithmetic_v<T>) {
+		if (x == 0 || std::isnan((long double)x)) return Number();
+		if (x < 0) {
+			long double a = -(long double)x;
+			if (std::isinf(a)) return Number(Real(false, -1, 10.0L, (long double)UINT64_MAX), ZERO);
+			return Number(Real(true, -1, a, 0.0L).normalize(), ZERO);
+		}
+		long double a = (long double)x;
+		if (std::isinf(a)) return Number(Real(false, 1, 10.0L, (long double)UINT64_MAX), ZERO);
+		return Number(Real(true, 1, a, 0.0L).normalize(), ZERO);
+	} else {
+		return Number();
+	}
 }
 
 bool Number::is_negative() const {
-    return this->r.is_negative();
+	return this->r.is_negative();
 }
 
 bool Number::is_positive() const {
-    return this->r.is_positive();
+	return this->r.is_positive();
 }
 
-inline Number operator+(const Number& a, const Real& b) { return a + Number(b); }
-inline Number operator-(const Number& a, const Real& b) { return a - Number(b); }
-inline Number operator*(const Number& a, const Real& b) { return a * Number(b); }
-inline Number operator/(const Number& a, const Real& b) { return a / Number(b); }
+inline Number operator+(const Number& a, const Real& b) {
+	return a + Number(b);
+}
+inline Number operator-(const Number& a, const Real& b) {
+	return a - Number(b);
+}
+inline Number operator*(const Number& a, const Real& b) {
+	return a * Number(b);
+}
+inline Number operator/(const Number& a, const Real& b) {
+	return a / Number(b);
+}
 
-inline Number operator+(const Real& a, const Number& b) { return Number(a) + b; }
-inline Number operator-(const Real& a, const Number& b) { return Number(a) - b; }
-inline Number operator*(const Real& a, const Number& b) { return Number(a) * b; }
-inline Number operator/(const Real& a, const Number& b) { return Number(a) / b; }
+// Real arithmetic type overloads
+inline Real operator+(long double a, const Real& b) {
+	return Real(a) + b;
+}
+inline Real operator-(long double a, const Real& b) {
+	return Real(a) - b;
+}
+inline Real operator*(long double a, const Real& b) {
+	return Real(a) * b;
+}
+inline Real operator/(long double a, const Real& b) {
+	return Real(a) / b;
+}
+inline Real operator+(const Real& a, long double b) {
+	return a + Real(b);
+}
+inline Real operator-(const Real& a, long double b) {
+	return a - Real(b);
+}
+inline Real operator*(const Real& a, long double b) {
+	return a * Real(b);
+}
+inline Real operator/(const Real& a, long double b) {
+	return a / Real(b);
+}
+// Real comparison with arithmetic types
+inline bool operator==(long double a, const Real& b) {
+	return Real(a) == b;
+}
+inline bool operator!=(long double a, const Real& b) {
+	return Real(a) != b;
+}
+inline bool operator<(long double a, const Real& b) {
+	return Real(a) < b;
+}
+inline bool operator>(long double a, const Real& b) {
+	return Real(a) > b;
+}
+inline bool operator<=(long double a, const Real& b) {
+	return Real(a) <= b;
+}
+inline bool operator>=(long double a, const Real& b) {
+	return Real(a) >= b;
+}
+inline bool operator==(const Real& a, long double b) {
+	return a == Real(b);
+}
+inline bool operator!=(const Real& a, long double b) {
+	return a != Real(b);
+}
+inline bool operator<(const Real& a, long double b) {
+	return a < Real(b);
+}
+inline bool operator>(const Real& a, long double b) {
+	return a > Real(b);
+}
+inline bool operator<=(const Real& a, long double b) {
+	return a <= Real(b);
+}
+inline bool operator>=(const Real& a, long double b) {
+	return a >= Real(b);
+}
+// Number arithmetic type overloads
+inline Number operator+(long double a, const Number& b) {
+	return Number(a) + b;
+}
+inline Number operator-(long double a, const Number& b) {
+	return Number(a) - b;
+}
+inline Number operator*(long double a, const Number& b) {
+	return Number(a) * b;
+}
+inline Number operator/(long double a, const Number& b) {
+	return Number(a) / b;
+}
+inline Number operator+(const Number& a, long double b) {
+	return a + Number(b);
+}
+inline Number operator-(const Number& a, long double b) {
+	return a - Number(b);
+}
+inline Number operator*(const Number& a, long double b) {
+	return a * Number(b);
+}
+inline Number operator/(const Number& a, long double b) {
+	return a / Number(b);
+}
+// Number comparison with arithmetic types
+inline bool operator==(long double a, const Number& b) {
+	return Number(a) == b;
+}
+inline bool operator!=(long double a, const Number& b) {
+	return Number(a) != b;
+}
+inline bool operator<(long double a, const Number& b) {
+	return Number(a) < b;
+}
+inline bool operator>(long double a, const Number& b) {
+	return Number(a) > b;
+}
+inline bool operator<=(long double a, const Number& b) {
+	return Number(a) <= b;
+}
+inline bool operator>=(long double a, const Number& b) {
+	return Number(a) >= b;
+}
+inline bool operator==(const Number& a, long double b) {
+	return a == Number(b);
+}
+inline bool operator!=(const Number& a, long double b) {
+	return a != Number(b);
+}
+inline bool operator<(const Number& a, long double b) {
+	return a < Number(b);
+}
+inline bool operator>(const Number& a, long double b) {
+	return a > Number(b);
+}
+inline bool operator<=(const Number& a, long double b) {
+	return a <= Number(b);
+}
+inline bool operator>=(const Number& a, long double b) {
+	return a >= Number(b);
+}
+// Number-Real mixed overloads
+inline Number operator+(const Real& a, const Number& b) {
+	return Number(a) + b;
+}
+inline Number operator-(const Real& a, const Number& b) {
+	return Number(a) - b;
+}
+inline Number operator*(const Real& a, const Number& b) {
+	return Number(a) * b;
+}
+inline Number operator/(const Real& a, const Number& b) {
+	return Number(a) / b;
+}
+inline bool operator==(const Real& a, const Number& b) {
+	return Number(a) == b;
+}
+inline bool operator!=(const Real& a, const Number& b) {
+	return Number(a) != b;
+}
+inline bool operator<(const Real& a, const Number& b) {
+	return Number(a) < b;
+}
+inline bool operator>(const Real& a, const Number& b) {
+	return Number(a) > b;
+}
+inline bool operator<=(const Real& a, const Number& b) {
+	return Number(a) <= b;
+}
+inline bool operator>=(const Real& a, const Number& b) {
+	return Number(a) >= b;
+}
 
 #define NARITH_OP(OP)                                                             \
-    template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>      \
-    inline Number operator OP (const Number& a, T b) {                            \
-        return a OP Number(_to_Real(b));                                          \
-    }                                                                             \
-    template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>      \
-    inline Number operator OP (T a, const Number& b) {                            \
-        return Number(_to_Real(a)) OP b;                                          \
-    }
+	template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>      \
+	inline Number operator OP (const Number& a, T b) {                            \
+		return a OP Number(_to_Real(b));                                          \
+	}                                                                             \
+	template<typename T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>      \
+	inline Number operator OP (T a, const Number& b) {                            \
+		return Number(_to_Real(a)) OP b;                                          \
+	}
 
 NARITH_OP(+)
 NARITH_OP(-)
@@ -1150,26 +1341,38 @@ NARITH_OP(/)
 #undef NARITH_OP
 
 inline Number cplx_pow(const Real& base, const Number& exp) {
-    return Number(base).pow(exp);
+	return Number(base).pow(exp);
 }
 inline Number cplx_log(const Real& base, const Number& exp) {
-    return Number(base).log(exp);
+	return Number(base).log(exp);
+}
+
+static inline Number realify(const Number& z) {
+    if (z.i.is_zero()) return z;
+    Real mag = z.r.abs();
+    if (z.r.is_zero()) mag = z.i.abs();
+    if (mag < ONE) mag = ONE;
+    Real tol = mag * _to_Real(1e-9L);
+    if (z.i.abs() <= tol) return Number(z.r, ZERO);
+    return z;
 }
 
 Number Number::normalize() const {
-    return Number(r.normalize(), i.normalize());
+	return realify(Number(r.normalize(), i.normalize()));
 }
 
 void Number::normalize_inplace() {
-    r.normalize_inplace();
-    i.normalize_inplace();
+	r.normalize_inplace();
+	i.normalize_inplace();
 }
 
 long double Number::_to_long_double() const {
-    return this->r._to_long_double();
+	return this->r._to_long_double();
 }
 
-inline Real _to_Real_mod(const Number& z) { return z.abs(); }
+inline Real _to_Real_mod(const Number& z) {
+	return z.abs();
+}
 
 const Number _ZERO = Number(ZERO);
 const Number _ONE = Number(ONE);
@@ -1185,107 +1388,105 @@ const Number M_I_NEG  = Number(ZERO, ZERO - ONE);
 
 // atan of a Real (clamped via long double; atanl(inf) = pi/2)
 static Real atan_real(const Real& x) {
-    long double v = x._to_long_double();
-    return _to_Real(atanl(v));
+	long double v = x._to_long_double();
+	return _to_Real(atanl(v));
 }
 
 Real Number::arg() const {
-    // axis cases
-    if (i.is_zero()) {
-        return r.is_negative() ? _to_Real(M_PI) : ZERO;
-    }
-    if (r.is_zero()) {
-        Real pi_2 = _to_Real(M_PI_2);
-        return i.is_negative() ? (ZERO - pi_2) : pi_2;
-    }
+	// axis cases
+	if (i.is_zero()) {
+		return r.is_negative() ? _to_Real(M_PI) : ZERO;
+	}
+	if (r.is_zero()) {
+		Real pi_2 = _to_Real(M_PI_2);
+		return i.is_negative() ? (ZERO - pi_2) : pi_2;
+	}
 
-    bool y_neg = i.is_negative();
-    bool x_neg = r.is_negative();
-    Real ya = i; if (y_neg) ya.neg = 1;
-    Real xa = r; if (x_neg) xa.neg = 1;
+	bool y_neg = i.is_negative();
+	bool x_neg = r.is_negative();
+	Real ya = i;
+	if (y_neg) ya.neg = 1;
+	Real xa = r;
+	if (x_neg) xa.neg = 1;
 
-    // compute atan of the smaller/larger ratio for numerical stability
-    Real base;
-    if (ya > xa) {
-        Real ratio = xa / ya;
-        base = _to_Real(M_PI_2) - atan_real(ratio);
-    } else {
-        Real ratio = ya / xa;
-        base = atan_real(ratio);
-    }
+	// compute atan of the smaller/larger ratio for numerical stability
+	Real base;
+	if (ya > xa) {
+		Real ratio = xa / ya;
+		base = _to_Real(M_PI_2) - atan_real(ratio);
+	} else {
+		Real ratio = ya / xa;
+		base = atan_real(ratio);
+	}
 
-    if (x_neg) {
-        Real pi = _to_Real(M_PI);
-        if (y_neg) base = base - pi;
-        else       base = pi - base;
-    } else if (y_neg) {
-        base = ZERO - base;
-    }
-    return base;
+	if (x_neg) {
+		Real pi = _to_Real(M_PI);
+		if (y_neg) base = base - pi;
+		else       base = pi - base;
+	} else if (y_neg) {
+		base = ZERO - base;
+	}
+	return base;
 }
 
 // e^z
 Number Number::exp_of() const {
-    if (i.is_zero()) {
-        return Number(_to_Number(M_E).pow(r));
-    }
-    Real ea = _to_Real(M_E).pow(r);
-    long double bl = i._to_long_double();
-    Real cb, sb;
-    if (std::isfinite(bl)) {
-        cb = _to_Real(cosl(bl));
-        sb = _to_Real(sinl(bl));
-    } else {
-        // |b| so large the phase is meaningless
-        cb = ZERO;
-        sb = ZERO;
-    }
-    return Number(ea * cb, ea * sb);
+	if (i.is_zero()) {
+		return Number(M_E.pow(r));
+	}
+	Real ea = _to_Real(M_E).pow(r);
+	long double bl = i._to_long_double();
+	Real cb, sb;
+	if (std::isfinite(bl)) {
+		cb = _to_Real(cosl(bl));
+		sb = _to_Real(sinl(bl));
+	} else {
+		// |b| so large the phase is meaningless
+		cb = ZERO;
+		sb = ZERO;
+	}
+	return Number(ea * cb, ea * sb);
 }
 
-// ln(z) = ln|z| + i¡¤arg(z)
+// ln(z) = ln|z| + iarg(z)
 Number Number::ln_of() const {
-    if (is_zero()) return Number();
-    Real mod    = abs();
-    Real ln_mod = Real::log10_of(mod) * _to_Real(M_LN10);
-    Real theta  = arg();
-    return Number(ln_mod, theta);
+	if (is_zero()) return Number();
+	Real mod    = abs();
+	Real ln_mod = Real::log10_of(mod) * _to_Real(M_LN10);
+	Real theta  = arg();
+	return Number(ln_mod, theta);
 }
 
-// z^w = e^(w¡¤ln z)
+// z^w = e^(w ln z)
 Number Number::pow(const Number& exp) const {
-    if (is_real() && exp.is_real()) {
-        return Number(r.pow(exp.r));
-    }
-    if (is_zero()) {
-        if (exp.is_zero()) return Number(ONE);
-        return Number();
-    }
-    return (exp * ln_of()).exp_of();
+    Number b = realify(*this), e = realify(exp);
+    if (b.is_real() && e.is_real()) return Number(b.r.pow(e.r));
+    if (b.is_zero()) { if (e.is_zero()) return Number(ONE); return Number(); }
+    return (e * b.ln_of()).exp_of();
 }
 
 // log_base(z) = ln(z) / ln(base)
 Number Number::log(const Number& base) const {
-    if (is_zero() || base.is_zero() || base == Number(ONE)) return Number();
-    return ln_of() / base.ln_of();
+	if (is_zero() || base.is_zero() || base == Number(ONE)) return Number();
+	return ln_of() / base.ln_of();
 }
 
 // Dilation: z^^w = 10^(log10(z)^w)
 Number Number::dilate(const Number& exp) const {
-    if (this->abs() <= _to_Number(10.0L)) return *this;
+	if (this->abs() <= 10.0L) return *this;
 
-    Number ten( _TEN );                 // Number(10 + 0i)
-    Number log10_z = this->log(ten);    // log base 10
-    return ten.pow(log10_z.pow(exp));
+	Number ten( _TEN );                 // Number(10 + 0i)
+	Number log10_z = this->log(ten);    // log base 10
+	return ten.pow(log10_z.pow(exp));
 }
 
 // Tetration: z^^^w = 10^(10^(log10(log10(z))^w))
 Number Number::tetrate(const Number& exp) const {
-    if (this->abs() <= _to_Number(1e10L)) return *this;
+	if (this->abs() <= 1e10L) return *this;
 
-    Number ten( _TEN );
-    Number log10_log10_z = this->log(ten).log(ten);
-    return ten.pow( ten.pow( log10_log10_z.pow(exp) ) );
+	Number ten( _TEN );
+	Number log10_log10_z = this->log(ten).log(ten);
+	return ten.pow( ten.pow( log10_log10_z.pow(exp) ) );
 }
 
 // Tetration
@@ -1293,135 +1494,133 @@ Number Number::tetrate(const Number& exp) const {
 //   layer = 2  Tetration
 //   layer = 3  Pentation  ...
 Number Number::tetrate(const Number& exp, const Number& layer) const {
-    Real L = layer.r;
+	Real L = layer.r;
 
-    Number aa = *this;
-    Number a  = *this;
-    Number ten( _TEN );
+	Number aa = *this;
+	Number a  = *this;
+	Number ten( _TEN );
 
-    for (Real k = ONE; k <= L; k = k + ONE) {
-        a = a.log(ten);
-        if (a.is_zero()) return aa;
-    }
+	for (Real k = ONE; k <= L; k = k + ONE) {
+		a = a.log(ten);
+		if (a.is_zero()) return aa;
+	}
 
-    a = a.pow(exp);
+	a = a.pow(exp);
 
-    for (Real k = ONE; k <= L; k = k + ONE) {
-        a = ten.pow(a);
-    }
+	for (Real k = ONE; k <= L; k = k + ONE) {
+		a = ten.pow(a);
+	}
 
-    return a;
+	return a;
 }
 
 Number Number::pow_sum(const Number& other) const {
-    Number nn = this->normalize();
-    Number ss = other.normalize();
+	Number nn = this->normalize();
+	Number ss = other.normalize();
 
-    if (nn.is_negative() || ss.is_zero()) return Number(_ONE);
-    if (nn.is_zero() || nn.is_one())       return Number(_ONE);
+	if (nn.is_negative() || ss.is_zero()) return Number(_ONE);
+	if (nn.is_zero() || nn.is_one())       return Number(_ONE);
 
-    Number shifted = nn + Number(_to_Real(0.5L));
-    Number exp_one = ss + Number(_ONE);
+	Number shifted = nn + Number(_to_Real(0.5L));
+	Number exp_one = ss + Number(_ONE);
 
-    if (exp_one.is_zero()) {
-        return shifted.log(Number(_TEN));
-    }
+	if (exp_one.is_zero()) {
+		return shifted.log(Number(_TEN));
+	}
 
-    Number result = shifted.pow(exp_one) / exp_one;
+	Number result = shifted.pow(exp_one) / exp_one;
 
-    if (result.is_negative()) result = Number();
+	if (result.is_negative()) result = Number();
 
-    return result.normalize();
+	return result.normalize();
 }
 
 Number Number::floor() const {
-    Real fr = ::floor(this->r);
-    Real fi = ::floor(this->i);
-    return Number(fr, fi);
+	Real fr = ::floor(this->r);
+	Real fi = ::floor(this->i);
+	return Number(fr, fi);
 }
 
 inline Number floor(const Number& z) {
-    return Number(::floor(z.r), ::floor(z.i));
+	return Number(::floor(z.r), ::floor(z.i));
 }
 
 // Construction of polar coordinate.
 static Number polar(const Real& mod, const Real& theta) {
-    long double t = theta._to_long_double();
-    if (!std::isfinite(t)) {
-        return Number(mod, ZERO);
-    }
-    Real c = _to_Real(cosl(t));
-    Real s = _to_Real(sinl(t));
-    return Number(mod * c, mod * s);
+	long double t = theta._to_long_double();
+	if (!std::isfinite(t)) {
+		return Number(mod, ZERO);
+	}
+	Real c = _to_Real(cosl(t));
+	Real s = _to_Real(sinl(t));
+	return Number(mod * c, mod * s);
 }
 
-// sin(a+bi) = sinh(b)¡¤cos a + i¡¤cosh(b)¡¤sin a
 Number Number::sin_of() const {
-    if (i.is_zero()) {
-        long double v = r._to_long_double();
-        if (!std::isfinite(v)) return Number();
-        return Number(_to_Number(sinl(v)));
-    }
-    Real eb  = real_exp(i);            // e^b
-    Real enb = real_exp(ZERO - i);    // e^-b
-    Real two = _to_Real(2);
-    Real sh  = (eb - enb) / two;       // sinh(b)
-    Real ch  = (eb + enb) / two;       // cosh(b)
+	if (i.is_zero()) {
+		long double v = r._to_long_double();
+		if (!std::isfinite(v)) return Number();
+		return Number(sinl(v));
+	}
+	Real eb  = real_exp(i);            // e^b
+	Real enb = real_exp(ZERO - i);     // e^-b
+	Real two = _to_Real(2);
+	Real sh  = (eb - enb) / two;       // sinh(b)
+	Real ch  = (eb + enb) / two;       // cosh(b)
 
-    long double a = r._to_long_double();
-    Real sa, ca;
-    if (std::isfinite(a)) {
-        sa = _to_Real(sinl(a));
-        ca = _to_Real(cosl(a));
-    } else {
-        sa = ZERO;
-        ca = ZERO;
-    }
-    return Number(sh * ca, ch * sa);
+	long double a = r._to_long_double();
+	Real sa, ca;
+	if (std::isfinite(a)) {
+		sa = _to_Real(sinl(a));
+		ca = _to_Real(cosl(a));
+	} else {
+		sa = ZERO;
+		ca = ZERO;
+	}
+	return Number(sh * ca, ch * sa);
 }
 
-// cos(a+bi) = cosh(b)¡¤cos a - i¡¤sinh(b)¡¤sin a
 Number Number::cos_of() const {
-    if (i.is_zero()) {
-        long double v = r._to_long_double();
-        if (!std::isfinite(v)) return Number();
-        return Number(_to_Number(cosl(v)));
-    }
-    Real eb  = real_exp(i);
-    Real enb = real_exp(ZERO - i);
-    Real two = _to_Real(2);
-    Real sh  = (eb - enb) / two;
-    Real ch  = (eb + enb) / two;
+	if (i.is_zero()) {
+		long double v = r._to_long_double();
+		if (!std::isfinite(v)) return Number();
+		return Number(cosl(v));
+	}
+	Real eb  = real_exp(i);
+	Real enb = real_exp(ZERO - i);
+	Real two = _to_Real(2);
+	Real sh  = (eb - enb) / two;
+	Real ch  = (eb + enb) / two;
 
-    long double a = r._to_long_double();
-    Real sa, ca;
-    if (std::isfinite(a)) {
-        sa = _to_Real(sinl(a));
-        ca = _to_Real(cosl(a));
-    } else {
-        sa = ZERO;
-        ca = ZERO;
-    }
-    
-    return Number(ch * ca, ZERO - (sh * sa));
+	long double a = r._to_long_double();
+	Real sa, ca;
+	if (std::isfinite(a)) {
+		sa = _to_Real(sinl(a));
+		ca = _to_Real(cosl(a));
+	} else {
+		sa = ZERO;
+		ca = ZERO;
+	}
+
+	return Number(ch * ca, ZERO - (sh * sa));
 }
 
-Number Number::tan_of() const { return sin_of() / cos_of(); }
-Number Number::cot_of() const { return cos_of() / sin_of(); }
-Number Number::sec_of() const { return Number(ONE) / cos_of(); }
-Number Number::csc_of() const { return Number(ONE) / sin_of(); }
+Number Number::tan_of() const {
+	return sin_of() / cos_of();
+}
+Number Number::cot_of() const {
+	return cos_of() / sin_of();
+}
+Number Number::sec_of() const {
+	return Number(ONE) / cos_of();
+}
+Number Number::csc_of() const {
+	return Number(ONE) / sin_of();
+}
 
 // Real = -1?
 static bool real_is_neg_one(const Real& x) {
-    return x.neg < 0 && x.sign && x.layer == 0 && x.val == 1.0L;
-}
-
-static inline Number realify(const Number& z) {
-    if (z.i.is_zero()) return z;
-    Real im = z.i;
-    Real tol = im.abs() * _to_Real(1e-18L);
-    if (im.abs() <= tol) return Number(z.r, ZERO);
-    return z;
+	return x.neg < 0 && x.sign && x.layer == 0 && x.val == 1.0L;
 }
 
 static std::string N2S_save(const Real& n) {
@@ -1436,39 +1635,51 @@ static std::string N2S_save(const Real& n) {
 }
 
 std::string Number::toString() const {
-    if (is_zero())  return "0";
-    if (i.is_zero()) return r.toString();
+	if (is_zero())  return "0";
+	if (i.is_zero()) return r.toString();
 
-    // Im. != 0
-    bool r_zero     = r.is_zero();
-    bool i_one      = i.is_one();
-    bool i_neg_one  = real_is_neg_one(i);
+	// Im. != 0
+	bool r_zero     = r.is_zero();
+	bool i_one      = i.is_one();
+	bool i_neg_one  = real_is_neg_one(i);
 
-    if (r_zero) {
-        if (i_one)     return "i";
-        if (i_neg_one) return "-i";
-        // Pure Im.
-        if (i.is_negative()) {
-            Real pos = ZERO - i;
-            return "-" + pos.toString() + "i";
-        }
-        return i.toString() + "i";
-    }
+	if (r_zero) {
+		if (i_one)     return "i";
+		if (i_neg_one) return "-i";
+		// Pure Im.
+		if (i.is_negative()) {
+			Real pos = ZERO - i;
+			return "-" + pos.toString() + "i";
+		}
+		return i.toString() + "i";
+	}
 
-    // r != 0 and i != 0
-    std::string rs = r.toString();
+	// r != 0 and i != 0
+	std::string rs = r.toString();
 
-    if (i_one)     return rs + " + i";
-    if (i_neg_one) return rs + " - i";
+	if (i_one)     return rs + " + i";
+	if (i_neg_one) return rs + " - i";
 
-    if (i.is_positive()) return rs + " + " + i.toString() + "i";
+	if (i.is_positive()) return rs + " + " + i.toString() + "i";
 
-    Real pos = ZERO - i;
-    return rs + " - " + pos.toString() + "i";
+	Real pos = ZERO - i;
+	return rs + " - " + pos.toString() + "i";
+}
+
+std::string Number::_to_String_short() const {
+	// Compact display that keeps 2 decimal places for ordinary-magnitude values.
+	// This Number type can hold astronomically large values (10^(10^...)); for those
+	// a long-double conversion overflows to +inf, so we fall back to the full compact
+	// toString() (scientific / power-tower form) instead of printing "inf".
+	if (is_zero()) return "0.00";
+	if (!i.is_zero()) return toString();          // complex: keep full form.
+	long double v = this->_to_long_double();
+	if (!std::isfinite(v)) return toString();      // too huge for fixed 2-decimals.
+	return format_with_commas(v, 2);               // finite: 2 decimals with commas.
 }
 
 static std::string N2S_save(const Number& n) {
-    return "C(" + N2S_save(n.r) + "," + N2S_save(n.i) + ")";
+	return "C(" + N2S_save(n.r) + "," + N2S_save(n.i) + ")";
 }
 
 // ============================================================
@@ -1511,7 +1722,7 @@ Number _time_flux_accel(Number s) {
 		flux_elapsed += dt;
 	}
 
-	_accel = _to_Number(accel);
+	_accel = accel;
 	return _accel;
 }
 
@@ -1588,20 +1799,562 @@ struct opt_	{
 // player.pre_alpha.highest is used to calculate GIM reduction.
 struct pre_alpha_ {
 	Number score = ONE; 											// Matter.
-	Number amount[8] = {ONE,ONE,ONE,ONE,ONE,ONE,ONE,ONE};	// M1-M8.
+	Number amount[8] = {ONE,ONE,ONE,ONE,ONE,ONE,ONE,ONE};	        // M1-M8.
 	Number highest = ZERO;										    // For prestige->GIM.
-	Number time = _to_Number(0); // How much time has passed since last prestige, etc.
+	Number time = 0; // How much time has passed since last prestige, etc.
+};
+
+struct ball_ {
+	Number value;
+	Number x, y;
+	Number spawn = Number(1000);   // value the ball was spawned with (ball color ratio)
+	double vx = 0.0, vy = 0.0;   // ball drift velocity (px/s, virtual board; not saved)
+
+	bool is_alive() const {
+		double v = (double)value._to_long_double();
+		return std::isfinite(v) && v > 0.0;
+	}
+	pair <Number, Number> _get_pos() {
+		return {x, y};
+	}
+};
+
+
+// Precision guard for the 10-to-1 Tier synthesis gate. A drop count that
+// displays as "10.000000" can sit a hair under 10 (e.g. 9.9999999) after
+// accumulated float arithmetic, which would wrongly block synthesis. The
+// tolerance (1e-6) matches the 6-decimal on-screen display, so anything that
+// renders as "10.000000" is treated as a full 10.
+static inline bool sim_has_ten(const Number& n) {
+	return !(n < Number(10) - Number(1e-6));
+}
+struct simulator_ {
+	upg_ level_drops[100][4];                 // Levels of drops: [0] is value, [1] is gravity and [2] is initial speed.
+	// [3] is only used in [1][3] to calculate drops bought.
+	// id starts from 1.
+	upg_ level_global[2][3];                  // Three kinds of levels upgraded using Am ([0]) or AP ([1]).
+	Number level = _ZERO;                     // Simulation level.
+	Number score = _ONE;					  // (Simulation) Points.
+	Number accumulate = _ZERO;                // Accumulated points (for Simulation level upgrade)
+	Number* am_ref = nullptr;                 // -> player.alpha.score (Am). Global(Am) buys pay from here.
+	Number* ap_ref = nullptr;                 // -> player.alpha.point (AP). Global(AP) buys pay from here.
+	Number global_level_bonus = _ZERO;        // Extra Global levels from SL + Ach.47. Added to the 1.02^Global exponent. Set each frame in DrawAlphaSimulator.
+	Number drop_value_mult    = _ONE;         // Ach.44 multiplier (+10% Drop value). Set each frame in DrawAlphaSimulator.
+	ball_  ball[50];                          // States of balls.
+	Number drops[100];                        // Numbers of drops at different Tiers.
+
+	// ---- Live drop sprites: shared between update() physics and DrawAlphaSimulator render ----
+	// When the total number of owned drops is below MAX_DROPS we simulate every single
+	// drop (one sprite each); once the total reaches MAX_DROPS we only keep the
+	// MAX_DROPS largest-Tier sprites (largest tiers first), capping both physics and render.
+	enum { MAX_DROPS = 250 };                 // cap of live falling drop sprites
+	double dx[MAX_DROPS];                     // sprite x (virtual board px)
+	double dy[MAX_DROPS];                     // sprite y (virtual board px)
+	double dvy[MAX_DROPS];                    // sprite vertical velocity (px/s)
+	double dvx[MAX_DROPS];                    // sprite horizontal velocity (px/s)
+	int    dtier[MAX_DROPS];              	  // sprite Tier (1..100), 0 = empty slot
+	bool   dateat[MAX_DROPS];                   // ghost drop already consumed its one ball this downward pass
+	bool   pool_init = false;             	  // one-time pool reset flag
+	int    board_w_px = -1, board_h_px = -1;  // last rendered board pixel size (resize recycle)
+	bool   drop_pool_dirty = false;           // set true on board resize -> recycle all drops
+
+	// ---- Diagnostics: revealed by the on-screen overlay in DrawAlphaSimulator.
+	// dbg_update_calls counts how often update() runs; dbg_last_dt is the time
+	// step it received (0 -> physics frozen).
+	long   dbg_update_calls = 0;
+	double dbg_last_dt      = 0.0;
+	
+	bool _get_ach(int id);
+	Number _get_SP_effect(int id);
+	// Initialize the cost of upgrades.
+	void cost_init() {
+		for(int i = 1; i <= 100; i ++) {
+			level_drops[i][0].init_cost = Number(100).pow(i - 1);
+			level_drops[i][0].scale = 1.5 - (i - 1) / 400.0;
+			level_drops[i][1].init_cost = Number(100).pow(i - 1);
+			level_drops[i][1].scale = 1.5;
+			level_drops[i][2].init_cost = Number(100).pow(i - 1);
+			level_drops[i][2].scale = 1.5;
+		}
+		// Putchase new drops.
+		level_drops[1][3].init_cost = 1;
+		level_drops[1][3].scale = 1.25;
+	}
+	// Returns the current cost of level_balls[id1][id2].
+	Number _get_cost(int id1, int id2) {
+		// Negative id1 => global upgrade line (level_global).
+		// gidx 0 = Am-spend line, gidx 1 = AP-spend line; id2 = which kind (value/gravity).
+		if (id1 < 0) {
+			int gidx = (-id1) - 1;
+			if (gidx < 0) gidx = 0;
+			if (gidx > 1) gidx = 1;
+			Number g = level_global[gidx][id2].level;          // already bought count for this kind
+			Number base  = Number(10).pow(20);                 // Both lines start at 1e20. Am rises x1e5/level (1e20,1e25,1e30,1e35...), AP x1e2/level.
+			Number ratio = Number(10).pow(gidx == 0 ? 5 : 2); // 1e5 (Am) or 1e2 (AP)
+			return base * ratio.pow(g);
+		}
+		Number x;
+		if(id2 <= 2) x = level_drops[id1][id2].level;
+		else {
+			// Calculates ball amounts.
+			for(int i = 1; i <= 100; i ++) x += Number(10).pow(i - 1) * drops[i];
+		}
+		Number s = level_drops[id1][id2].scale;
+		Number i = level_drops[id1][id2].init_cost;
+		// Buying NEW drops (id2 == 3) now grows as a geometric sequence
+		if (id2 == 3) {
+			double xd = x._to_long_double();
+			if (std::isfinite(xd)) {
+				double e = xd - 1.0;
+				if (e < 0.0) e = 0.0;
+				return i * s.pow(Number(e));
+			}
+			// Extreme drop counts (x overflows double): keep the complex exponent, floored at 0.
+			Number e3 = (x > ONE) ? (x - ONE) : Number(0);
+			return i * s.pow(e3);
+		}
+		return i * s.pow(x * x / 2 - x / 2);
+	}
+	// Returns the current cost of upgrading Simulation level.
+	Number _get_cost() {
+		Number x = level + ONE;
+		if(x <= TEN) return 100 * x.pow(x);
+		else{
+			return 100 * x.pow(x - 0.5 * (x - 10));
+		}
+	}
+	// Returns the value (damage/collision) of Drop id.
+	Number _get_val(int id) {
+		Number a = Number(20).pow(id - 1) * (ONE + 0.05 * level_drops[id][0].level) * (Number(1.05).pow((level_global[0][0].level + level_global[1][0].level + global_level_bonus))) * drop_value_mult;
+		if(_get_ach(42)) a = a * 1.5;
+		if(_get_ach(50)) a = a * (level + ONE);   // Ach.50: Drop value x (SL+1)
+		return a;
+	}
+	// Returns the gravity (affects speed) of Drop id.
+	Number _get_gravity(int id) {
+		Number a = (ONE + Number(0.05) * level_drops[id][1].level) * (Number(1.05).pow((level_global[0][1].level + level_global[1][1].level + global_level_bonus)));
+		if(_get_ach(44)) a = a * ((25 + level).pow(0.5) - 4);
+		if(_get_ach(46)) a = a * 2;
+		return a;
+	}
+	// Returns the initial speed (affects speed) of Drop id.
+	Number _get_init_speed(int id) {
+		Number a = (ONE + Number(0.05) * level_drops[id][2].level) * (Number(1.05).pow((level_global[0][1].level + level_global[1][1].level + global_level_bonus)));
+		if(_get_ach(42)) a = a * 1.5;
+		return a;
+	}
+	// Trying to upgrade Tier id1's upgrade id2 once.
+	// If id1 is negative, that means it's upgrading global upgrades (level_global).
+	// Returns true if upgrade is successful.
+	// A drop whose gravity OR initial speed exceeds 100 becomes a "ghost" drop:
+	// it skips real collision physics AND never touches balls; instead it banks the
+	// FULL SP of its own value the moment it reaches the bottom, then keeps
+	// falling straight down and ghosts through every other ball. Rendered
+	// semi-transparent. Keeps SP flowing even when high gravity makes physical
+	// collisions hard to land.
+	bool _is_fast_drop(int id) {
+		if (_get_gravity(id) > Number(100)) return true;
+		if (_get_init_speed(id) > Number(100)) return true;
+		return false;
+	}
+	
+	bool _try_upgrade(int id1, int id2) {
+		// Try to upgrade Tier id1's upgrade id2 once.
+		// If id1 is negative, upgrade global upgrades (level_global).
+		// Returns true if upgrade is successful.
+		if (id1 < 0) {
+			// Global upgrades: level_global[abs(id1)-1][id2]
+			int gidx = (-id1) - 1;
+			if (gidx < 0 || gidx >= 2) return false;
+			// Global upgrades are paid with Am (gidx 0) or AP (gidx 1), NOT SP.
+			Number* res = (gidx == 0) ? am_ref : ap_ref;
+			if (!res) return false;
+			Number cost = _get_cost(id1, id2);
+			if (*res < cost) return false;
+			*res = (*res - cost).normalize();
+			level_global[gidx][id2].level += 1;
+			return true;
+		}
+		// Regular drop upgrades: level_drops[id1][id2]
+		if (id1 < 1 || id1 > 100) return false;
+		if (id2 < 0 || id2 > 3) return false;
+		// For id2 == 3 (drop tier purchase), check SM8 requirement
+		if (id2 == 3 && id1 != 1) {
+			// SM8: level >= 50 allows higher tier drops
+			if (level < 50) return false;
+		}
+		// Special case: the FIRST Tier 1 drop is free. The board starts empty
+		// (drops[1] == 0), so the very first purchase must succeed without any
+		// SP cost; otherwise a player holding 0 SP can never bootstrap the run.
+		// Every later Tier 1 drop still goes through the normal cost gate below.
+		if (id1 == 1 && id2 == 3 && drops[1] <= ZERO) {
+			drops[1] += 1;
+			return true;
+		}
+		Number cost = _get_cost(id1, id2);
+		if (score < cost) return false;
+		if (id2 == 3) {
+			// id2 == 3 is the "acquire a drop" action.
+			if (id1 == 1) {
+				// Buy ONE Tier 1 drop, paying SP (_get_cost(1,3)).
+				// Old code wrongly required 16 existing Tier 1 drops, so the
+				// first Tier 1 drop could never be bought even with SP >= cost.
+				score -= cost;
+				drops[1] += 1;
+			} else {
+				// Merge: 10 of Tier (id1-1) -> 1 of Tier id1 (in-kind, no SP).
+				if (!sim_has_ten(drops[id1 - 1])) return false;
+				drops[id1 - 1] -= 10;
+				drops[id1]     += 1;
+			}
+			return true;
+		}
+		// value / gravity / init-speed upgrades: pay SP then level up.
+		score -= cost;
+		level_drops[id1][id2].level += 1;
+		return true;
+
+	}
+	// ---- Tier synthesis: 10 of Tier id1 -> 1 of Tier (id1+1). ----
+	// Pure in-kind conversion. UNRESTRICTED: NOT gated by SM8 (SL>=50) and
+	// costs NO SP. The only requirement is owning >= 10 of Tier id1.
+	// Returns true if exactly one synthesis happened.
+	bool _try_synthesize(int id1) {
+		if (id1 < 1 || id1 >= 100) return false;
+		if (!sim_has_ten(drops[id1])) return false;
+		drops[id1]     -= 10;
+		drops[id1 + 1] += 1;
+		return true;
+	}
+	// Keep synthesizing while at least 10 Tier id1 remain (Buy Max path).
+	bool _try_synthesize_bulk(int id1) {
+		bool changed = false;
+		while (_try_synthesize(id1)) changed = true;
+		return changed;
+	}
+	// Trying to upgrade Tier id1's upgrade id2 with all possible resources.
+	// If id1 is negative, that means it's upgrading global upgrades (level_global).
+	// Returns true if the level is changed.
+	// NOTE: If id1 != 1 and id2 = 3 and SM 8 is not unlocked, do nothing.
+	// Otherwise, upgrade while only editing level_drops[1][3], for example,
+	// buying 1 Tier 2 Drops is equivalent to buying 10 Tier 1 Drop.
+	bool _try_upgrade_bulk(int id1, int id2) {
+		// Try to upgrade Tier id1's upgrade id2 with all possible resources.
+		// If id1 is negative, upgrade global upgrades (level_global).
+		// Returns true if the level changed.
+		// NOTE: If id1 != 1 and id2 = 3 and SM 8 is not unlocked, do nothing.
+		if (id1 != 1 && id2 == 3) {
+			// SM8 requirement: simulation level >= 50
+			if (level < 50) return false;
+		}
+		bool changed = false;
+		while (true) {
+			if (!_try_upgrade(id1, id2)) break;
+			changed = true;
+		}
+		return changed;
+
+	}
+	// Trying to upgrade Simulation level.
+	// Returns true if upgrade is successful.
+	bool _try_upgrade() {
+		// Try to upgrade Simulation level.
+		// Returns true if upgrade is successful.
+		// SP needed for SL x upgrade is 100 * x^x.
+		Number cost = _get_cost();
+		if (accumulate < cost) return false;
+		accumulate -= cost;
+		accumulate = ZERO;
+		level += 1;
+		return true;
+	}
+	// Updating real time data & drop positions, etc. This is part of the game loop function.
+	void update(Number s) {
+		// ============================================================
+		// Alpha Simulator game loop (tech doc 4.3.4.2).
+		// Runs every frame while the simulator is unlocked. Physics runs
+		// in a fixed virtual board space (W x H); DrawAlphaSimulator maps
+		// these coordinates onto the actual ImGui child rectangle.
+		//   * 10 balls on board, value based on Simulation level (no gravity)
+		//   * drops fall by innate initial speed + gravity
+		//   * drop touches ball -> ball.value -= drop.value, gain SP
+		//   * ball.value < drop.value -> ball destroyed, respawn at random place
+		//   * drop leaves bottom -> destroyed, new drop spawns at top
+		//   * bouncing halves the drop speed
+		// ============================================================
+		dbg_update_calls++;
+		dbg_last_dt = (double)s._to_long_double();
+		if (!std::isfinite(dbg_last_dt) || dbg_last_dt < 0.0) dbg_last_dt = 0.0;
+		Number dt = s;                 // time step (seconds)
+		const double W = 800.0, H = 800.0;   // virtual board size (px) -- taller for more vertical room
+		int    N_BALLS   = 10;               // balls kept alive on the board
+		if(_get_ach(45)) N_BALLS = 25;
+		if(_get_ach(49)) N_BALLS = 50;
+		const double BALL_R    = 30.0;       // ball collision radius
+		const double DROP_R    = 10.0;       // drop collision radius
+		const int    MAX_DROPS = simulator_::MAX_DROPS;  // live drop sprite cap (250)
+		// --- Ball init / auto-fill destroyed balls ---
+		// Done BEFORE the dt<=0 guard and using float-safe checks: balls are always
+		// seeded even if effective_s was clamped to ZERO upstream (which made update()
+		// return early and left every ball at value 0 -> empty board), and WITHOUT
+		// relying on the complex-number operator<=/> of the Number type.
+		for (int i = 0; i < N_BALLS; i++) {
+			if (!ball[i].is_alive()) {
+				// Ball value scales with Simulation level (real members, no player.*).
+				ball[i].value = Number(10) * Number(2).pow(level);   // life = 10 * 2^(Simulation level)
+				ball[i].spawn = ball[i].value;
+				// Spread across the WHOLE board with a BALL_R margin so a circle
+				// never renders outside the board (old code clustered to centre).
+				double rx = BALL_R + ((double)(rand() % 10000) / 10000.0) * (W - 2.0 * BALL_R);
+				double ry = BALL_R + ((double)(rand() % 10000) / 10000.0) * (H - 2.0 * BALL_R);
+				ball[i].x = Number(rx);
+				ball[i].y = Number(ry);
+			}
+		}
+		if (dt <= ZERO) return;        // balls are seeded; physics frozen this tick
+		// --- Ball drift motion + wall bounce across the WHOLE board ---
+		{
+			double dt_d0 = dt._to_long_double();
+			if (!std::isfinite(dt_d0) || dt_d0 < 0.0) dt_d0 = 0.0;
+			for (int i = 0; i < N_BALLS; i++) {
+				if (!ball[i].is_alive()) continue;
+				double bx = (double)ball[i].x._to_long_double();
+				double by = (double)ball[i].y._to_long_double();
+				if (!std::isfinite(bx)) bx = W * 0.5;
+				if (!std::isfinite(by)) by = H * 0.5;
+				ball[i].x = Number(bx);
+				ball[i].y = Number(by);
+			}
+		}
+
+		// --- First-time sprite pool reset ---
+		if (!pool_init) {
+			for (int i = 0; i < MAX_DROPS; i++) {
+				dtier[i] = 0;
+				dx[i] = 0.0;
+				dy[i] = 0.0;
+				dvy[i] = 0.0;
+				dateat[i] = 0;
+				dvx[i] = 0.0;
+			}
+			pool_init = true;
+		}
+		// On a window / board resize, wipe the whole live-sprite pool so the reconciler
+		// re-seeds every drop fresh at the top for the new extent.
+		if (drop_pool_dirty) {
+			for (int i = 0; i < MAX_DROPS; i++) {
+				dtier[i] = 0; dx[i] = 0.0; dy[i] = 0.0; dvx[i] = 0.0; dvy[i] = 0.0; dateat[i] = 0;
+			}
+			drop_pool_dirty = false;
+		}
+
+		// --- Reconcile the live sprite pool with the desired multiset ---
+		//   * total owned drops <  MAX_DROPS : simulate EVERY drop (one sprite each).
+		//   * total owned drops >= MAX_DROPS : keep only the MAX_DROPS largest-Tier sprites.
+		// Existing sprites keep their positions/velocities; we only spawn missing sprites
+		// (at the top of the board) or free surplus sprites of an over-represented Tier.
+		{
+			int target[101];
+			int alive[101];
+			for (int t = 0; t <= 100; t++) {
+				target[t] = 0;
+				alive[t] = 0;
+			}
+
+			// Count total owned drops, saturating at MAX_DROPS (avoid huge Number -> int).
+			long long total = 0;
+			for (int t = 1; t <= 100; t++) {
+				if (drops[t] <= ZERO) continue;
+				long long c = (long long)drops[t]._to_long_double();
+				if (c < 0) c = 0;
+				total += c;
+				if (total >= MAX_DROPS) {
+					total = MAX_DROPS;
+					break;
+				}
+			}
+
+			if (total < MAX_DROPS) {
+				// Per-sprite: exactly one sprite per owned drop.
+				for (int t = 1; t <= 100; t++) {
+					if (drops[t] <= ZERO) continue;
+					long long c = (long long)drops[t]._to_long_double();
+					if (c < 0) c = 0;
+					if (c > MAX_DROPS) c = MAX_DROPS;
+					target[t] = (int)c;
+				}
+			} else {
+				// Largest-Tier first greedy fill up to MAX_DROPS sprites.
+				int left = MAX_DROPS;
+				for (int t = 100; t >= 1 && left > 0; t--) {
+					if (drops[t] <= ZERO) continue;
+					long long c = (long long)drops[t]._to_long_double();
+					if (c < 0) c = 0;
+					int take = (c >= (long long)left) ? left : (int)c;
+					target[t] = take;
+					left -= take;
+				}
+			}
+
+			// How many sprites of each Tier are currently alive.
+			for (int i = 0; i < MAX_DROPS; i++)
+				if (dtier[i] >= 1 && dtier[i] <= 100) alive[dtier[i]]++;
+
+			// Free surplus sprites of an over-represented Tier (set slot empty).
+			for (int t = 1; t <= 100; t++) {
+				int extra = alive[t] - target[t];
+				if (extra <= 0) continue;
+				for (int i = 0; i < MAX_DROPS && extra > 0; i++)
+					if (dtier[i] == t) {
+						dtier[i] = 0;
+						extra--;
+					}
+			}
+			// Spawn missing sprites (spawn at the top of the board at a random x).
+			for (int t = 1; t <= 100; t++) {
+				int need = target[t] - alive[t];
+				if (need <= 0) continue;
+				for (int i = 0; i < MAX_DROPS && need > 0; i++) {
+					if (dtier[i] == 0) {
+						dtier[i] = t;
+						dateat[i] = 0;
+						dx[i]  = (double)(rand() % (int)W);
+						dy[i]  = 0.0;
+						dvy[i] = (double)(_get_init_speed(t)._to_long_double()) * 60.0;
+						if (!std::isfinite(dvy[i])) dvy[i] = 240.0;   // overflow guard
+						dvx[i] = ((double)(rand() % 100) / 100.0) * 80.0 - 40.0;   // small horizontal drift [-40,40]
+						if (!std::isfinite(dvx[i])) dvx[i] = 0.0;
+						need--;
+					}
+				}
+			}
+		}
+
+		// --- Physics + collisions (per live sprite) ---
+		Number gained = ZERO;
+		double dt_d = dt._to_long_double();
+		// Iterate the REAL live-sprite pool (dx/dy/dvy/dtier). There is no
+		// dropSprites array; dtier[i]==0 marks an empty slot.
+		for (int i = 0; i < MAX_DROPS; i++) {
+			int t = dtier[i];
+			if (t < 1 || t > 100) continue;                 // empty slot
+			bool fast = _is_fast_drop(t);                   // ghost drop: no real collision
+			double oldx = dx[i], oldy = dy[i];              // pre-move pos for swept contact test
+			// Fall under per-tier gravity, guarded against overflow / NaN.
+			double grav = (double)_get_gravity(t)._to_long_double();
+			if (!std::isfinite(grav)) grav = 1.0;
+			dvy[i] += grav * 100.0 * dt_d;
+			if (!std::isfinite(dvy[i])) dvy[i] = 240.0;
+			dy[i]  += dvy[i] * dt_d;
+			if (fast) {
+				// Ghost drop falls in a straight vertical line: no drift, no wall bounce.
+				dvx[i] = 0.0;
+			} else {
+				dx[i]  += dvx[i] * dt_d;
+				if (!std::isfinite(dx[i])) { dx[i] = W * 0.5; dvx[i] = 0.0; }
+				if (dx[i] < DROP_R)      { dx[i] = DROP_R;      dvx[i] =  std::fabs(dvx[i]); }
+				if (dx[i] > W - DROP_R)  { dx[i] = W - DROP_R;  dvx[i] = -std::fabs(dvx[i]); }
+			}
+			// A drop that reaches a ball BOUNCES off it (it no longer disappears and
+			// regenerates at the top). The sprite is pushed just outside the ball along
+			// the collision normal and its velocity is reflected upward; because it is
+			// separated past the radius in the same frame it stops overlapping, so value/
+			// SP is paid once per discrete bounce, not every frame (no "SP +1" regression).
+			if (!fast)
+			for (int j = 0; j < N_BALLS; j++) {
+				if (!ball[j].is_alive()) continue;
+				double bx = (double)ball[j].x._to_long_double();
+				double by = (double)ball[j].y._to_long_double();
+				double ddx = dx[i] - bx, ddy = dy[i] - by;
+				double d2 = ddx * ddx + ddy * ddy, rr = BALL_R + DROP_R;
+				if (d2 < rr * rr) {
+					Number dval = _get_val(t);
+					ball[j].value = (ball[j].value - dval).normalize();
+					gained = gained + dval;
+					// --- Bounce off the ball instead of recycling it ---
+					double dist = std::sqrt(d2);
+					if (!(std::isfinite((double)dist)) || dist < 1e-6) dist = 1e-6;   // coincident-centre guard
+					double nx = ddx / dist, ny = ddy / dist;    // collision normal: ball centre -> sprite
+					const double SEP = 1.02;                    // push sprite a hair past the surface
+					dx[i] = bx + nx * rr * SEP;                 // separate so overlap ends this frame
+					dy[i] = by + ny * rr * SEP;
+					const double REST = 0.7;                    // restitution (bounciness)
+					// Reflect the velocity vector about the collision normal so the drop can
+					// bounce sideways (along the normal), NOT just straight up.
+					double vdotn = dvx[i] * nx + dvy[i] * ny;   // velocity projected onto the normal
+					if (vdotn < 0.0) {                          // moving INTO the ball -> mirror it out
+						dvx[i] -= (1.0 + REST) * vdotn * nx;    // sideways (normal-x) kick
+						dvy[i] -= (1.0 + REST) * vdotn * ny;    // vertical (normal-y) kick
+					}
+					dvx[i] += (double)((rand() % 41) - 20) * 2.0;   // tangential jitter so hits scatter
+					if (!std::isfinite(dvx[i])) dvx[i] = 0.0;
+					if (!std::isfinite(dvy[i])) dvy[i] = -200.0;
+					long double bv = ball[j].value._to_long_double();
+					if (!(std::isfinite((double)bv) && bv > 0.0L)) {   // ball destroyed
+						ball[j].value = Number(10) * Number(2).pow(level);   // respawn life = 10 * 2^(SL)
+						ball[j].spawn = ball[j].value;
+						ball[j].x = Number(BALL_R + ((double)(rand() % 10000) / 10000.0) * (W - 2.0 * BALL_R));
+						ball[j].y = Number(BALL_R + ((double)(rand() % 10000) / 10000.0) * (H - 2.0 * BALL_R));
+						ball[j].vx = ((double)(rand() % 100) / 100.0) * 120.0 - 60.0;   // fresh drift on respawn
+						ball[j].vy = ((double)(rand() % 100) / 100.0) * 120.0 - 60.0;
+					}
+					break;
+				}
+			}
+			if (dtier[i] == 0) continue;                    // killed by a ball above
+			// Left the bottom -> recycle at top with a fresh speed (no double SP).
+			if (dy[i] > H + DROP_R) {
+				if (fast && !dateat[i]) {
+					gained = gained + _get_val(t);
+					dateat[i] = true;
+				}
+				dy[i] = -DROP_R;
+				dx[i] = (double)(rand() % (int)W);
+				double iv = (double)_get_init_speed(t)._to_long_double();
+				if (!std::isfinite(iv)) iv = 240.0;
+				dvy[i] = iv * 60.0;
+				dvx[i] = ((double)(rand() % 100) / 100.0) * 80.0 - 40.0; dateat[i] = 0;
+			}
+			// A drop that flies back above the TOP border is recycled (slot freed); the
+			// reconciler respawns a fresh sprite at the top on the next tick.
+			if (dy[i] < -DROP_R) dtier[i] = 0;
+		}
+
+
+		// --- Bank the SP gained this tick ---
+		gained = gained * _get_SP_effect(1);
+		if(_get_ach(43)) gained = gained * (level + 1);
+		// Ach.51: SP x log10(AP); Ach.52: SP x log10(Am).
+		if(_get_ach(51) && ap_ref != nullptr) { Number _l51 = (*ap_ref).log(TEN); if(_l51 >= ONE) gained = gained * _l51; }
+		if(_get_ach(52) && am_ref != nullptr) { Number _l52 = (*am_ref).log(TEN); if(_l52 >= ONE) gained = gained * _l52; }
+		score      = (score      + gained).normalize();
+		accumulate = (accumulate + gained).normalize();
+
+		// --- Shift+1 hotkey: Buy a Tier 1 drop (README) ---
+#ifdef _WIN32
+		{
+			bool held = (GetAsyncKeyState(VK_SHIFT) & 0x8000) && (GetAsyncKeyState('1') & 0x8000);
+			static bool prev_held = false;
+			if (held && !prev_held) _try_upgrade(1, 3);   // buy on key-down only
+			prev_held = held;
+		}
+#endif
+	}
 };
 
 struct alpha_ {
-	Number init_second_scale = _to_Number(4); // The second scale used to calculate cost.
+	Number init_second_scale = 4;             // The second scale used to calculate cost.
 	Number highest = ZERO;					  // Highest in-Alpha matter reached.
 	Number point = ZERO;					  // Alpha Points.(or AP in short.)
 	Number alpha = ZERO;					  // Alpha you have. Notice that alpha isn't AP.
 	// It more represents how many times you (performed) alpha, later alpha/time may increase.
 	int tab = 1;							  // Which tab you are in.
 	bool autobuyer = false; 				  // Whether Alpha autobuyer (From Alpha Milestone 7, 20 Alpha) is enabled.
-	Number time = _to_Number(0); // How much time has passed since last alpha, etc.
+	Number time = 0;                          // How much time has passed since last alpha, etc.
+
+	simulator_ simulator;
+
+	bool unlocked_simulator = false;
 
 	// === Alpha Amplifier / Alpha Intensifier system ===
 	Number score    = ONE;      // Am (Alpha matter)
@@ -1614,21 +2367,22 @@ struct alpha_ {
 struct beta_ {
 	int tab = 1;							  // Which tab you are in.
 	bool autobuyer = false; 				  // Whether Beta autobuyer (NYI) is enabled.
-	Number time = _to_Number(0);              // How much time has passed since last beta, etc.
+	Number time = 0;                          // How much time has passed since last beta, etc.
 
 	Number highest = ZERO;					  // Highest in-Beta matter reached.
 	Number highest_am = ZERO;				  // Highest in-Beta Alpha matter reached.
 	Number highest_bm = ZERO;				  // Highest in-Beta Beta matter reached.
 	Number point = ZERO;					  // Beta Points.
-	Number beta = ZERO;					  // Beta you have.
+	Number beta = ZERO;					      // Beta you have.
 
-	Number decay     = _to_Number(0.99);      // The base Beta Decay Number (BDN).
-	Number decay_factor = _to_Number(0.5);    // The Beta Decay Factor (BDF).
-	Number score     = ONE;                  // Bm (Beta matter)
-	Number bm_best  = ONE;                   // Highest Bm.
-	Number bm_rate  = ZERO;                  // Current Bm rate.
-	Number BIM      = TEN;                   // Beta Instability Magnitude.
-	Number amount[8] = {ONE,ONE,ONE,ONE,ONE,ONE,ONE,ONE};
+	Number decay     = 0.99;                  // The base Beta Decay Number (BDN).
+	Number decay_factor = 0.5;                // The Beta Decay Factor (BDF).
+	Number score     = ONE;                   // Bm (Beta matter)
+	Number bm_best  = ONE;                    // Highest Bm.
+	Number bm_rate  = ZERO;                   // Current Bm rate.
+	Number BIM      = TEN;                    // Beta Instability Magnitude.
+	Number amount[8] = {_ONE ,_ONE ,_ONE ,_ONE ,_ONE ,_ONE ,_ONE ,_ONE};
+	Number weights[4] = {_ZERO, _ZERO, _ZERO, _ZERO};
 };
 
 // Self-explanatory.
@@ -1642,9 +2396,7 @@ const string aup_names[4] = {"(AUP1) Buy AUP with matter.",
                              "(AUP3) Buy AUP with Int. Aero.",
                              "(AUP4) Buy AUP with AP."
                             };
-const Number am[100] = {ONE, _to_Number(2), _to_Number(4), _to_Number(8),
-                        _to_Number(10), _to_Number(15), _to_Number(20),
-                       };
+const Number am[100] = {1, 2, 4, 8, 10, 15, 20};
 const string am_name[100] = {
 	" Alpha: Buying Aeromagnifiers no longer resets Amp. and Int.",
 	" Alpha: Unlock Autobuyers for Amplifiers.",
@@ -1653,6 +2405,17 @@ const string am_name[100] = {
 	" Alpha: Keep PUs on Alpha.",
 	" Alpha: Unlock Autobuyers for Aeromagnifiers.",
 	" Alpha: Unlock Autobuyer for Alpha."
+};
+const Number sm[100] = {3, 5, 8, 10, 12, 14, 16, 20};
+const string sm_name[100] = {
+	" Simulation Level: Apply Story 1 reward to Alpha Amplifiers.",
+	" Simulation Level: Multiply Alpha matter gain by log10(Am).",
+	" Simulation Level: Multiply Alpha matter gain by log10(AP).",
+	" Simulation Level: Apply Ach. Reward to AIs.",
+	" Simulation Level: ^5 to BAU8 effect.",
+	" Simulation Level: Triple effect of BAU9.",
+	" Simulation Level: AAs gain a mult. equal to log10(log10(matter)).",
+	" Simulation Level: Now you can buy higher tier drops."
 };
 const string bau_names[20] = {
 	"(BAU1) Multiply AP gain by x4.",
@@ -1665,6 +2428,21 @@ const string bau_names[20] = {
 	"(BAU8) Multiplier to Am generation based on AP.",
 	"(BAU9) Reduction to AIM based on AP.",
 	"(BAU10) Multiplier to AP gain based on Am."
+};
+
+const string bu_names[20] = {"(BU1) Gain 1 Beta Energy, which can be used to weaken Beta Decay."};
+const Number bm[100] = {2, 3, 5, 8, 10, 12, 14, 16, 20, 30};
+const string bm_name[100] = {
+	" Beta: Keep Alpha Milestone 1 on Beta resets.",
+	" Beta: Keep Alpha Milestone 2 on Beta resets.",
+	" Beta: Keep Alpha Milestone 3 on Beta resets.",
+	" Beta: Keep Alpha Milestone 4 on Beta resets.",
+	" Beta: Keep Alpha Milestone 5 on Beta resets.",
+	" Beta: Keep Alpha Milestone 6 on Beta resets.",
+	" Beta: Keep Alpha Milestone 7 on Beta resets.",
+	" Beta: Keep Break Alpha Upgrades on Beta resets.",
+	" Beta: Keep Alpha Simulator on Beta resets.",
+	" Beta: Autobuy AUPs and AUP now applies to every AU."
 };
 const string ach_name[1000] = {"",
                                "(Ach. 1) The Beginning",
@@ -1714,7 +2492,11 @@ const string ach_name[1000] = {"",
                                "(Ach. 45) Full Circle",
                                "(Ach. 46) Far from enough",
                                "(Ach. 47) Not yet effective",
-                               "(Ach. 48) Just Enough AUP"
+                               "(Ach. 48) Just Enough AUP",
+                               "(Ach. 49) Rearrangement",
+                               "(Ach. 50) You forgot to Prestige",
+                               "(Ach. 51) Hypodrops",
+                               "(Ach. 52) Halfway to there"
                               };
 const string ach_desc[1000] = {"",
                                "Purchase an A1.",
@@ -1750,7 +2532,7 @@ const string ach_desc[1000] = {"",
                                "Purchase BAU1.",
                                "Purchase BAU2.",
                                "Get the fifth milestone.",
-                               "Get the sixth Alpha milestone.", //Bookmark: 34 here
+                               "Get the sixth Alpha milestone.",
                                "Get the seventh Alpha milestone.",
                                "Purchase BAU3.",
                                "Purchase BAU4.",
@@ -1766,6 +2548,10 @@ const string ach_desc[1000] = {"",
                                "Reach e1.00e10 matter.",
                                "Have PIM less than 0.",
                                "Use 1e9 AUP.",
+                               "Reach SL 8.",
+                               "Reach 1e10000000 matter with\nGIM equal to 10.",
+                               "Reach SL 10.",
+                               "Have 5 Tier 2 Drops."
                               };
 const string ach_reward[1000] = {"",
                                  "",
@@ -1805,19 +2591,23 @@ const string ach_reward[1000] = {"",
                                  "Reward: x1.01 to ALL Intensifiers.",
                                  "Reward: x1.01 to ALL Intensifiers.",
                                  "Reward: x2 to AP.\nImprove Ach. formula.",
-                                 "Reward: Apply Story 1 reward to\nAlpha Amplifiers.",
-                                 "Reward: Multiply Alpha matter gain\nby log10(Am).",
-                                 "Reward: Multiply Alpha matter gain\nby log10(AP).",
+                                 "",
+                                 "",
+                                 "Reward: Unlock Alpha Simulator.",
                                  //41-
-                                 "Reward: x10 to AP.",
-                                 "Reward: x10 to AP.",
-                                 "Reward: x10 to AP.",
-                                 "Reward: Apply Ach. Reward to AIs.",
-                                 "Reward: ^2 to BAU8 effect.",
-                                 "Reward: Buff BAU1 to x5.",
-                                 "Reward: Double effect of BAU9.",
-                                 "Reward: AAs gain a mult. equal to\nlog10(log10(matter))."
-                                };
+                                 "",
+                                 "Reward: +50% Value to Drops,\n+50% Init. speed to Drops.",
+                                 "Reward: Mult. SP by (SL+1).",
+                                 "Reward: Boost gravity based on SL.",
+                                 "Reward: Add more balls on the board.",
+                                 "Reward: x2 to Drops' gravity.",
+                                 "Reward: Add 5 free levels to \nGlobal upgrades.",
+                                 "Reward: Square Alpha Sim. bonus.",
+                                 "Reward: Add even more balls on the\nboard.",
+                                 "Reward: Mult. Value of Drops by\n(SL+1).",
+                                 "Reward: Mult. SP by log10(AP).",
+                                 "Reward: Mult. SP by log10(Am)."
+								};
 
 const string story_text[100] = {
 	"",
@@ -1865,7 +2655,12 @@ const string story_text[100] = {
     the way a gardener watches a growing seed.\n\
     ...And for the first time, They wondered\n\
     whether They were the gardener,\n\
-    or the seed."
+    or the seed.",
+    // Story 6
+    "...and They decide to simulate a small\n\
+	world to gain more power.\n\
+	The drops fall. The spheres shatter.\n\
+	It feels... ephemeral."
 };
 
 const string story_hint[100] = {
@@ -1874,7 +2669,8 @@ const string story_hint[100] = {
 	"...but They did not count the crossings.",
 	"...if only They had looked beneath.",
 	"...the gift never asked for thanks.",
-	"...until the very edge of the world."
+	"...until the very edge of the world.",
+	"...when They started a new world."
 };
 
 const string story_reward[100] = {
@@ -1883,7 +2679,8 @@ const string story_reward[100] = {
 	"Reward: AP gain x(1 + 0.1 x Alpha).",
 	"Reward: AA and AI Amplifiers gain +10% base multiplier.",
 	"Reward: Am production x2.",
-	"Reward: GIM reduction x2."
+	"Reward: GIM reduction x2.",
+	"Reward: A fading sense of accomplishment."
 };
 #ifdef _WIN32
 #include "imgui.h"
@@ -1923,8 +2720,8 @@ class player_ {
 		pre_alpha_ pre_alpha;
 		alpha_ alpha;
 		beta_ beta;
-		Number fastest_ap_per_min = ZERO;
-		Number fastest_bp_per_min = ZERO;
+		Number fastest_ap_per_min = 0;
+		Number fastest_bp_per_min = 0;
 		std::vector<bool> ach;   // Whether Ach. x is completed.
 		std::vector<bool> story; // Whether Story x is found.
 		Number GIM = TEN;
@@ -1933,9 +2730,9 @@ class player_ {
 		long double last_tick = 0; // Used to calculate time passage.
 		long double time_flux = 0; // How much time flux you have.
 
-		Number rate_Number = ZERO;
-		Number rate_Number_Am = ZERO;
-		Number rate_Number_Bm = ZERO;
+		Number rate_Number = 0;
+		Number rate_Number_Am = 0;
+		Number rate_Number_Bm = 0;
 
 		// Which tab you are in and how many tabs you have unlocked.
 		// Tab 1: Production.   (Initial)
@@ -1952,8 +2749,8 @@ class player_ {
 		bool unlocked_alpha = false;
 		bool break_alpha = false;
 		bool unlocked_beta = false;
-		
-		// ---------------- Ach. & Story related functions. 
+
+		// ---------------- Ach. & Story related functions.
 
 		// Returns whether Ach. x is completed.
 		[[nodiscard]] bool _get_ach(int id) {
@@ -1964,7 +2761,7 @@ class player_ {
 		// Used to calculate overall Ach. reward.
 		[[nodiscard]] Number _get_ach_done() {
 			Number cnt = ZERO;
-			for(int i = 1; i <= 50; i ++) {
+			for(int i = 1; i <= 52; i ++) {
 				cnt += _get_ach(i) ? ONE : ZERO;
 			}
 			return cnt;
@@ -2008,7 +2805,7 @@ class player_ {
 
 			}
 		}
-		
+
 		// Unlock certain ach. if certain requirements are met.
 		void _try_unlock(int id) {
 			if(_get_ach(id)) return;
@@ -2083,10 +2880,10 @@ class player_ {
 			if(id == 23 && (!this->upgrade[15].level.is_zero())) {
 				_unlock(id);
 			}
-			if(id == 24 && (this->upgrade[20].level >= _to_Number(9))) {
+			if(id == 24 && (this->upgrade[20].level >= 9)) {
 				_unlock(id);
 			}
-			if(id == 25 && (this->upgrade[21].level >= _to_Number(5))) {
+			if(id == 25 && (this->upgrade[21].level >= 5)) {
 				_unlock(id);
 			}
 
@@ -2133,8 +2930,9 @@ class player_ {
 			if(id == 39 && (!this->upgrade[35].level.is_zero())) {
 				_unlock(id);
 			}
-			if(id == 40 && (this->alpha.score >= _to_Number(1e10))) {
+			if(id == 40 && (this->alpha.score >= 1e10)) {
 				_unlock(id);
+				this->alpha.unlocked_simulator = true;
 			}
 
 			if(id == 41 && (!this->upgrade[56].level.is_zero())) {
@@ -2152,13 +2950,25 @@ class player_ {
 			if(id == 45 && (!this->upgrade[39].level.is_zero())) {
 				_unlock(id);
 			}
-			if(id == 46 && (this->pre_alpha.score >= _TEN.pow(_to_Number(1e10)))) {
+			if(id == 46 && (this->pre_alpha.score >= _TEN.pow(1e10))) {
 				_unlock(id);
 			}
-			if(id == 47 && (this->PIM <= _to_Number(0))) {
+			if(id == 47 && (this->PIM <= 0)) {
 				_unlock(id);
 			}
-			if(id == 48 && (_get_AUP_bought() >= _to_Number(1e9))) {
+			if(id == 48 && (_get_AUP_bought() >= 1e9)) {
+				_unlock(id);
+			}
+			if(id == 49 && this->alpha.simulator.level >= 8) {
+				_unlock(id);
+			}
+			if(id == 50 && this->pre_alpha.score >= TEN.pow(1e7) && this->_get_GIM() == _TEN) {
+				_unlock(id);
+			}
+			if(id == 51 && this->alpha.simulator.level >= 10) {
+				_unlock(id);
+			}
+			if(id == 52 && this->alpha.simulator.drops[2] >= 5) {
 				_unlock(id);
 			}
 		}
@@ -2168,7 +2978,6 @@ class player_ {
 			if(_get_story(id)) return;
 			else {
 				this->story[id] = true;
-
 #ifdef _WIN32
 				if (g_use_gui) {
 					std::string title = "Story " + std::to_string(id) + " Unlocked";
@@ -2176,7 +2985,6 @@ class player_ {
 					PushNotification(title, body, ImVec4(0.55f, 0.85f, 1.0f, 1.0f)); // cyan
 				}
 #endif
-
 			}
 		}
 
@@ -2186,7 +2994,7 @@ class player_ {
 				_unlock_story(id);
 			}
 			// Story 2: reached Alpha 3 times.
-			if(id == 2 && (this->alpha.alpha >= _to_Number(3))) {
+			if(id == 2 && (this->alpha.alpha >= 3)) {
 				_unlock_story(id);
 			}
 			// Story 3: unlocked the Alpha Amplifier / Intensifier system.
@@ -2194,18 +3002,22 @@ class player_ {
 				_unlock_story(id);
 			}
 			// Story 4: Am reached 1e10.
-			if(id == 4 && (this->alpha.score >= _to_Number(1e10))) {
+			if(id == 4 && (this->alpha.score >= 1e10)) {
 				_unlock_story(id);
 			}
 			// Story 5: Am reached the world's edge.
 			if(id == 5 && (this->alpha.score >= inf)) {
 				_unlock_story(id);
 			}
+			// Story 6: Unlock Alpha Simulator.
+			if(id == 6 && (this->alpha.unlocked_simulator)) {
+				_unlock_story(id);
+			}
 		}
 
 		// Unlock certain Ach. and Story if certain requirements are met.
 		void _try_unlock_all() {
-			for(int i = 1; i <= 50; i ++) _try_unlock(i);
+			for(int i = 1; i <= 52; i ++) _try_unlock(i);
 			for(int i = 1; i <= 50; i ++) _try_unlock_story(i);
 		}
 
@@ -2214,8 +3026,8 @@ class player_ {
 		// id = 1: Amplifiers, x(1+0.001x)
 		[[nodiscard]] Number _get_ach_effect(int id) {
 			if(id == 1) {
-				if(!this->ach[37]) return ONE + _to_Number(0.001) * _get_ach_done();
-				else return ONE + _to_Number(0.005) * _get_ach_done();
+				if(!this->ach[37]) return ONE + 0.001 * _get_ach_done();
+				else return ONE + 0.005 * _get_ach_done();
 			}
 			return ONE;
 		}
@@ -2227,28 +3039,27 @@ class player_ {
 		// id = 4: Am production, x2.
 		// id = 5: GIM reduction, x2.
 		[[nodiscard]] Number _get_story_effect(int id) {
-			if(id == 1) {
-				Number tm = (this->alpha.time) / _to_Number(1000.0);
-				return _to_Number(tm) + ONE;
+			if(id == 1 && this->story[id]) {
+				Number tm = (this->alpha.time) / 1000.0;
+				return tm + ONE;
 			}
-			if(id == 2) {
-				return ONE + _to_Number(0.1) * this->alpha.alpha;
+			if(id == 2 && this->story[id]) {
+				return ONE + 0.1 * this->alpha.alpha;
 			}
-			if(id == 3) {
-				return ONE + _to_Number(0.1);
+			if(id == 3 && this->story[id]) {
+				return 1.1;
 			}
-			if(id == 4) {
-				return _to_Number(2);
+			if(id == 4 && this->story[id]) {
+				return 2;
 			}
-			if(id == 5) {
-				return _to_Number(2);
+			if(id == 5 && this->story[id]) {
+				return 2;
 			}
 			return ONE;
 		}
 
-		
 		// --------------------------- Pre-prestige related items.
-		
+
 		// Returns current Prestige Factor, or PF.
 		// It is used in the GIM -> Mult formula (10 - logPF(log10(x)) / 2).
 		// It starts off at 10 and decreases as PIM decreases, which is decreased by PU3.
@@ -2258,9 +3069,9 @@ class player_ {
 			Number init = TEN;
 			Number pim_ld = PIM;
 			Number exp = pim_ld / TEN;
-			if (pim_ld >= ZERO) init = _to_Number(8) * _to_Number(1.25).pow(exp);
-			else if (pim_ld < ZERO && PIM >= _to_Number(-100)) init = _to_Number(8) * _to_Number(1.25).pow(exp / TEN);
-			else if (pim_ld < _to_Number(-100)) init = ONE + _to_Number(5.521852) * _to_Number(1.25).pow(exp / TEN / TEN);
+			if (pim_ld >= ZERO) init = 8 * Number(1.25).pow(exp);
+			else if (pim_ld < ZERO && PIM >= -100) init = 8 * Number(1.25).pow(exp / TEN);
+			else if (pim_ld < -100) init = ONE + 5.521852 * Number(1.25).pow(exp / TEN / TEN);
 			return init;
 		}
 		void _update_PF() {
@@ -2290,8 +3101,8 @@ class player_ {
 			Number init = TEN;
 			this->PF = _get_PF();
 			Number highest_ld = this->pre_alpha.highest;
-			if (((highest_ld - ONE) < _to_Number(1e-9)) && ((ONE - highest_ld) < _to_Number(1e-9))
-			        || ((highest_ld) < _to_Number(1e-9)) && ((highest_ld) > _to_Number(-1e-9))) {
+			if (((highest_ld - ONE) < 1e-9) && ((ONE - highest_ld) < 1e-9)
+			        || ((highest_ld) < 1e-9) && ((highest_ld) > -1e-9)) {
 				return init;
 			}
 			Number tmp = (this->pre_alpha.highest + 1);
@@ -2302,18 +3113,18 @@ class player_ {
 			if (_get_story(5)) gim_red = gim_red * _get_story_effect(5);
 			Number reduction = tmp / 2 * gim_red;
 			tmp = reduction - init;
-			if(tmp > TEN) tmp = tmp.pow(_to_Number(0.9)) * _TEN.pow(_to_Number(0.1));
+			if(tmp > TEN) tmp = tmp.pow(0.9) * _TEN.pow(0.1);
 			tmp = ZERO - tmp;
 			return tmp;
 		}
-		
+
 		// Returns current GIM IF you prestige at this point, used for display.
 		Number _get_GIM(Number _score) {
 			Number init = TEN;
 			this->PF = _get_PF();
 			Number highest_ld = _score;
-			if (((highest_ld - ONE) < _to_Number(1e-9)) && ((ONE - highest_ld) < _to_Number(1e-9))
-			        || ((highest_ld) < _to_Number(1e-9)) && ((highest_ld) > _to_Number(-1e-9))) {
+			if (((highest_ld - ONE) < 1e-9) && ((ONE - highest_ld) < 1e-9)
+			        || ((highest_ld) < 1e-9) && ((highest_ld) > -1e-9)) {
 				return init;
 			}
 			Number tmp = (_score + 1);
@@ -2324,7 +3135,7 @@ class player_ {
 			if (_get_story(5)) gim_red = gim_red * _get_story_effect(5);
 			Number reduction = tmp / 2 * gim_red;
 			tmp = reduction - init;
-			if(tmp > TEN) tmp = tmp.pow(_to_Number(0.9)) * _TEN.pow(_to_Number(0.1));
+			if(tmp > TEN) tmp = tmp.pow(0.9) * _TEN.pow(0.1);
 			tmp = ZERO - tmp;
 			return tmp;
 		}
@@ -2337,24 +3148,24 @@ class player_ {
 		// Returns GIM -> M^(x).
 		[[nodiscard]] Number _get_GIM_effect() {
 			Number gim = _get_GIM();
-			if ((gim - TEN) < _to_Number(1e-9) && (TEN - gim) < _to_Number(1e-9)) {
-				return _to_Number(0.5);
+			if ((gim - TEN) < 1e-9 && (TEN - gim) < 1e-9) {
+				return 0.5;
 			}
 
-			Number prod = _to_Number(11);
+			Number prod = 11;
 			prod = prod - gim;
-			prod = prod.log(_to_Number(121));
-			prod = (ONE + ONE) * prod * prod + _to_Number(0.5);
-			if(prod > _to_Number(1.3225)) prod = _to_Number(1.3225).pow(_to_Number(0.75)) * prod.pow(_to_Number(0.25));
+			prod = prod.log(121);
+			prod = (ONE + ONE) * prod * prod + 0.5;
+			if(prod > 1.3225) prod = Real(1.3225).pow(0.75) * prod.pow(0.25);
 			return prod;
 		}
 		void _update_GIM() {
 			this->GIM = _get_GIM();
 			GIM = this->GIM;
 		}
-		
+
 		// ---------------------------- Prestige related items.
-		
+
 		// The current PU3 effect. Work even if PU3 is not bought.
 		[[nodiscard]] Number _get_PU3_effect() {
 			Number init = TEN;
@@ -2368,26 +3179,13 @@ class player_ {
 			tmp = tmp.log(pf);
 			Number gim_red = _get_AU_effect(2) * _get_Am_effect(1);
 			if (_get_story(5)) gim_red = gim_red * _get_story_effect(5);
-			Number reduction = tmp / _to_Number(2) * gim_red;
-			if(reduction > TEN) reduction = reduction.pow(_to_Real(0.9)) * TEN.pow(_to_Real(0.1));
+			Number reduction = tmp / 2 * gim_red;
+			if(reduction > TEN) reduction = reduction.pow(0.9) * TEN.pow(0.1);
 			reduction = reduction / TEN;
 			return reduction;
 		}
 
-		
-		// Returns whether Alpha Milestone (id+1) is completed.
-		bool _get_AM(int id) {
-			if (this->alpha.alpha >= am[id]) return true;
 
-			Number diff = am[id] - this->alpha.alpha;
-			if (diff.r.layer == 0.0L && diff.r.sign && diff.r.neg > 0 &&
-			        diff.r.val < 0.01L) {
-				return true;
-			}
-			return false;
-		}
-
-		
 		// Returns the effect of PU2, which gives a multiplier to Amp. preduction that applies BEFORE Int. effect.
 		// **PU2: Give a small multiplier based on matter to Mx/s which applies before Intensifier effect.
 		[[nodiscard]] Number _get_PU2_effect() {
@@ -2401,51 +3199,62 @@ class player_ {
 		[[nodiscard]] Number _get_PU2_effect(Number s) {
 			if(s <= FIVE.pow(FIVE)) return ONE;
 			Number init = s.log(FIVE).log(FIVE);
-			init = ONE + (init - ONE) / _to_Number(5);
+			init = ONE + (init - ONE) / FIVE;
 			return init;
 		}
 
 		// Get Aeromagnifier effects.
 		[[nodiscard]] Number _get_aero_effect_a() {
-			Number a = (ONE + _to_Number(0.2) * this->upgrade[20].level) * _get_AU_effect(0);
+			Number a = (ONE + 0.15 * this->upgrade[20].level) * _get_AU_effect(0);
+			if(!this->upgrade[19].level.is_zero()) a = (ONE + 0.2 * this->upgrade[20].level) * _get_AU_effect(0);
 			return a;
 		}
 		[[nodiscard]] Number _get_aero_effect_i() {
-			Number a = (ONE + _to_Number(0.1) * this->upgrade[21].level) * _get_AU_effect(1);
-			if(_get_ach(33)) a = a * _to_Number(1.01);
-			if(_get_ach(34)) a = a * _to_Number(1.01);
-			if(_get_ach(35)) a = a * _to_Number(1.01);
-			if(_get_ach(36)) a = a * _to_Number(1.01);
+			Number a = (ONE + 0.075 * this->upgrade[21].level) * _get_AU_effect(1);
+			if(!this->upgrade[19].level.is_zero()) a = (ONE + 0.1 * this->upgrade[20].level) * _get_AU_effect(0);
+			if(_get_ach(33)) a = a * 1.01;
+			if(_get_ach(34)) a = a * 1.01;
+			if(_get_ach(35)) a = a * 1.01;
+			if(_get_ach(36)) a = a * 1.01;
 			return a;
 		}
 
-        // ----------------------------------- Alpha related items.
-        
+		// ----------------------------------- Alpha related items.
+
 		[[nodiscard]] Number _get_alpha_aero_effect_a() {
-			return ONE + _to_Number(0.2) * this->upgrade[56].level;
+			Number a = (ONE + 0.15 * this->upgrade[56].level);
+			return a;
 		}
 		[[nodiscard]] Number _get_alpha_aero_effect_i() {
-			Number a = ONE + _to_Number(0.1) * this->upgrade[57].level;
-			if(_get_ach(33)) a = a * _to_Number(1.01);
-			if(_get_ach(34)) a = a * _to_Number(1.01);
-			if(_get_ach(35)) a = a * _to_Number(1.01);
-			if(_get_ach(36)) a = a * _to_Number(1.01);
-			if(_get_ach(44)) a = a * _get_ach_effect(1);
+			Number a = ONE + 0.075 * this->upgrade[57].level;
+			if(_get_ach(33)) a = a * 1.01;
+			if(_get_ach(34)) a = a * 1.01;
+			if(_get_ach(35)) a = a * 1.01;
+			if(_get_ach(36)) a = a * 1.01;
+			if(_get_SM(4)) a = a * _get_ach_effect(1);
 			return a;
 		}
 
+		// Returns whether Alpha Milestone (id+1) is completed.
+		bool _get_AM(int id) {
+			if (this->alpha.alpha >= am[id]) return true;
+			if (_get_BM(id)) return true;
+			Number diff = am[id] - this->alpha.alpha;
+			if (diff.r.layer == 0.0L && diff.r.sign && diff.r.neg > 0 &&
+			        diff.r.val < 0.01L) {
+				return true;
+			}
+			return false;
+		}
 
-		//Returns how many AP you can get with current matter. (this->alpha.highest)
+		// Returns how many AP you can get with current matter. (this->alpha.highest)
 		[[nodiscard]] Number _get_AP() {
 			Number a = ZERO;
 			if(!this->break_alpha || this->pre_alpha.score < inf) a = ONE;
 			else a = this->pre_alpha.score.log(inf);
-			a = a * _to_Number(4).pow(this->upgrade[30].level);
-			if(_get_ach(30)) a = a * _to_Number(2);
-			if(_get_ach(31)) a = a * _to_Number(2);
-			if(_get_ach(41)) a = a * _to_Number(10);
-			if(_get_ach(42)) a = a * _to_Number(10);
-			if(_get_ach(43)) a = a * _to_Number(10);
+			a = a * Number(4).pow(this->upgrade[30].level);
+			if(_get_ach(30)) a = a * 2;
+			if(_get_ach(31)) a = a * 2;
 			if(_get_story(2)) a = a * _get_story_effect(2);
 			a = a * this->_get_BAU10_effect();
 			return a;
@@ -2456,12 +3265,9 @@ class player_ {
 			Number b = s.normalize();
 			if(!this->break_alpha || b < inf) a = ONE;
 			else a = b.log(inf);
-			a = a * _to_Number(4).pow(this->upgrade[30].level);
-			if(_get_ach(30)) a = a * _to_Number(2);
-			if(_get_ach(31)) a = a * _to_Number(2);
-			if(_get_ach(41)) a = a * _to_Number(10);
-			if(_get_ach(42)) a = a * _to_Number(10);
-			if(_get_ach(43)) a = a * _to_Number(10);
+			a = a * Number(4).pow(this->upgrade[30].level);
+			if(_get_ach(30)) a = a * 2;
+			if(_get_ach(31)) a = a * 2;
 			if(_get_story(2)) a = a * _get_story_effect(2);
 			a = a * this->_get_BAU10_effect();
 			return a;
@@ -2470,17 +3276,17 @@ class player_ {
 		// Returns how many alpha(s) you can get if you (perform) alpha now.
 		[[nodiscard]] Number _get_alpha() {
 			Number a = ONE;
-			if(_get_ach(30)) a = a * _to_Number(2);
+			if(_get_ach(30)) a = a * 2;
 
-			// ** BAU3£ºMultiply Alpha gain based on matter and level.
+			// ** BAU3 : Multiply Alpha gain based on matter and level.
 			if (this->upgrade[32].level > ZERO) {
 				Number s = this->pre_alpha.score;
 				if (s > ONE) {
 					Number log_s = s.log(TEN);
 					if (log_s > ZERO) {
 						Number x = this->upgrade[32].level;
-						Number exponent = _to_Number(0.75) - _to_Number(0.75) / _to_Number(1.1).pow(x);
-						if (exponent > _to_Number(0.75)) exponent = _to_Number(0.75);
+						Number exponent = 0.75 - 0.75 / Number(1.1).pow(x);
+						if (exponent > 0.75) exponent = 0.75;
 						Number mul = log_s.pow(exponent);
 						a = a * mul;
 					}
@@ -2488,7 +3294,7 @@ class player_ {
 			}
 			if (this->unlocked_beta) a = a * _get_Bm_effect(4);
 			if (a < ONE) return ONE;
-			return floor(a) + _to_Number(0.00001);
+			return floor(a) + 0.0000001;
 		}
 
 		// Returns the cost of the next AUP purchase of a given id.
@@ -2498,13 +3304,13 @@ class player_ {
 		// id = 29: with AP
 		[[nodiscard]] Number _get_AUP_cost(int id) {
 			if (id == 26) {
-				Number s = _to_Number(1e100);
+				Number s = 1e100;
 				Number level = this->upgrade[26].level;
 				Number exp;
-				if (level <= _to_Number(10)) {
+				if (level <= 10) {
 					exp = level + ONE;
 				} else {
-					Number extra = level - _to_Number(10);
+					Number extra = level - 10;
 					exp = (level + ONE) + extra * extra;
 				}
 
@@ -2514,30 +3320,30 @@ class player_ {
 			}
 			if (id == 27) {
 				Number level = this->upgrade[27].level;
-				Number cost = _to_Number(5) + _to_Number(5) * level;
-				if (level > _to_Number(10)) {
-					Number extra = level - _to_Number(10);
+				Number cost = 5 + 5 * level;
+				if (level > 10) {
+					Number extra = level - 10;
 					cost = cost + extra * extra;
 				}
 				return cost;
 			}
 			if (id == 28) {
 				Number level = this->upgrade[28].level;
-				Number cost = _to_Number(4) + _to_Number(3) * level;
-				if (level > _to_Number(10)) {
-					Number extra = level - _to_Number(10);
+				Number cost = 4 + 3 * level;
+				if (level > 10) {
+					Number extra = level - 10;
 					cost = cost + extra * extra;
 				}
 				return cost;
 			}
 			if (id == 29) {
-				Number s = _to_Number(2);
+				Number s = 2;
 				Number level = this->upgrade[29].level;
 				Number exp;
-				if (level <= _to_Number(10)) {
+				if (level <= 10) {
 					exp = level;
 				} else {
-					Number extra = level - _to_Number(10);
+					Number extra = level - 10;
 					exp = level + extra * extra;
 				}
 				return s.pow(exp);
@@ -2553,7 +3359,7 @@ class player_ {
 			if (id == 29) return " AP";
 			return "";
 		}
-        
+
 		// Returns how many Alpha Upgrade Points (AUP) you have bought.
 		[[nodiscard]] Number _get_AUP_bought() {
 			return this->upgrade[22].level+this->upgrade[23].level+this->upgrade[24].level+this->upgrade[25].level;
@@ -2569,34 +3375,34 @@ class player_ {
 			return _get_AUP() - _get_AUP_bought();
 		}
 
-		
+
 		// Returns the numerical effect of Alpha Upgrades. (ID 22-25)
 		// Input is 0-3, not 1-4 or 22-25.
 		[[nodiscard]] Number _get_AU_effect(int id) {
-			if(id == 0) return _to_Number(1.1).pow(this->upgrade[id + 22].level);
+			if(id == 0) return Number(1.1).pow(this->upgrade[id + 22].level);
 			if(id == 1) {
 				Number level = this->upgrade[23].level;
-				Number base  = _to_Number(1.02);
-				const Number THRESHOLD = _to_Number(25);
+				Number base  = 1.02;
+				const Number THRESHOLD = 25;
 
 				if (level <= THRESHOLD) {
 					return base.pow(level);
 				}
 
 				Number extra      = level - THRESHOLD;
-				Number log2_term  = (extra + ONE).log(_to_Number(2));
+				Number log2_term  = (extra + ONE).log(2);
 
 				return base.pow(THRESHOLD + log2_term);
 			}
 			if(id == 2) {
-				Number base =  ONE +_to_Number(0.05) * this->upgrade[id + 22].level;
-				if(base >= _to_Number(2)) base = (_to_Number(8) * base).pow(_to_Number(0.25));
+				Number base =  ONE + 0.05 * this->upgrade[id + 22].level;
+				if(base >= 2) base = (8 * base).pow(0.25);
 				return base;
 			}
 			if(id == 3) {
-				Number base = _to_Number(0.99).pow(this->upgrade[id + 22].level);
+				Number base = Number(0.99).pow(this->upgrade[id + 22].level);
 				Number x = this->upgrade[id + 22].level;
-				if(base <= _to_Number(0.01)) base = (_to_Number(0.01).pow(ONE - ONE / x.pow(Real(0.5))) * base.pow(ONE / x.pow(Real(0.5))));
+				if(base <= 0.01) base = (Number(0.01).pow(ONE - ONE / x.pow(0.5)) * base.pow(ONE / x.pow(0.5)));
 				return base;
 			}
 			return ONE;
@@ -2609,13 +3415,12 @@ class player_ {
 		// id = 1: Mult. to Amplifiers based on this BAU's level and Alpha.
 		Number _get_BAU_effect(int id) {
 			if(id == 0) {
-				if(!_get_ach(46)) return _to_Number(4).pow(this->upgrade[id + 30].level);
-				else return _to_Number(5).pow(this->upgrade[id + 30].level);
+				return Number(4).pow(this->upgrade[id + 30].level);
 			}
 			if(id == 1) {
 				if(this->upgrade[id + 30].level.is_zero()) return ONE;
-				Number base = ONE + _to_Number(0.1) * this->alpha.alpha;
-				return base.pow(ONE + _to_Number(0.1) * this->upgrade[id + 30].level);
+				Number base = ONE + 0.1 * this->alpha.alpha;
+				return base.pow(ONE + 0.1 * this->upgrade[id + 30].level);
 			}
 			return ONE;
 		}
@@ -2627,8 +3432,8 @@ class player_ {
 			if (ap <= ONE) return ONE;
 			Number log10_ap = ap.log(TEN);
 			if (log10_ap <= ZERO) return ONE;
-			if(!_get_ach(45)) return log10_ap.pow(_to_Number(0.5));
-			else return log10_ap;
+			if(!_get_SM(5)) return log10_ap.pow(0.5);
+			else return log10_ap.pow(2.5);
 		}
 
 		// BAU9: -log10(AP)/100 to AIM
@@ -2638,8 +3443,8 @@ class player_ {
 			if (ap <= ONE) return ZERO;
 			Number log10_ap = ap.log(TEN);
 			if (log10_ap <= ZERO) return ZERO;
-			if(!_get_ach(45)) return log10_ap / _to_Number(100);
-			else return log10_ap / _to_Number(50);
+			if(!_get_SM(6)) return log10_ap / 100;
+			else return log10_ap / 100 * 3;
 		}
 
 		// BAU10: x log10(Am) * level to AP gain
@@ -2663,15 +3468,15 @@ class player_ {
 
 		[[nodiscard]] Number _get_AIM_effect() {
 			_update_AIM();
-			if (this->alpha.AIM == TEN) return _to_Number(0.25);
-			Number prod = _to_Number(11);
+			if (this->alpha.AIM == TEN) return 0.25;
+			Number prod = 11;
 			prod = prod - this->alpha.AIM;
-			prod = prod.log(_to_Number(121));
-			prod = ((ONE + ONE) * prod * prod + _to_Number(0.5)) / _to_Number(2);
+			prod = prod.log(121);
+			prod = ((ONE + ONE) * prod * prod + 0.5) / 2;
 			return prod.normalize();
 		}
 
-		// Am's 4 effects, given id = 1~4£º
+		// Am's 4 effects, given id = 1~4.
 		//   id = 1: Mult. to GIM reduction.
 		//   id = 2: Mult. to PIM reduction.
 		//   id = 3: Mult. to A1-A8.
@@ -2685,22 +3490,79 @@ class player_ {
 			if (log10_base <= ZERO) return ONE;
 
 
-			if (id == 1) return (ONE + log10_base * _to_Number(0.05)).pow(_get_Bm_effect(3));
-			if (id == 2) return (ONE + log10_base * _to_Number(0.05)).pow(_get_Bm_effect(3));
-			if (id == 3) return (ONE + log10_base * _to_Number(0.1)).pow(_get_Bm_effect(3));
-			if (id == 4) return (ONE + log10_base * _to_Number(0.01)).pow(_get_Bm_effect(3));
+			if (id == 1) return (ONE + log10_base * 0.05).pow(_get_Bm_effect(3));
+			if (id == 2) return (ONE + log10_base * 0.05).pow(_get_Bm_effect(3));
+			if (id == 3) return (ONE + log10_base * 0.1).pow(_get_Bm_effect(3));
+			if (id == 4) return (ONE + log10_base * 0.01).pow(_get_Bm_effect(3));
 			return ONE;
 		}
 
-		// ------------------------------ Beta related items.
+		// Returns whether Simulation Milestone (id+1) is completed.
+		[[nodiscard]] bool _get_SM(int id) {
+			if (id < 0 || id >= 8) return false;
+			return this->alpha.simulator.level >= sm[id];
+		}
+
+		// Returns the effect of Simulation Milestone.
+		[[nodiscard]] Number _get_SM_effect(int id) {
+			if(id == 1) return _get_story_effect(1);
+			if(id == 2) return this->alpha.score.log(TEN);
+			if(id == 3) return this->alpha.point.log(TEN);
+			if(id == 4) return _get_ach_effect(1);
+			if(id == 5) return _get_BAU8_effect();
+			if(id == 6) return _get_BAU9_effect();
+			if(id == 7) {
+				if(this->pre_alpha.score < TEN.pow(TEN)) return ONE;
+				else return this->pre_alpha.score.log(TEN).log(TEN);
+			}
+			if(id == 8) {
+				return ONE;
+			}
+		}
+
+		// Returns the effect of Simulation Points.
+		[[nodiscard]] Number _get_SP_effect(int id) {
+			Number log10_sp = this->alpha.simulator.score.log(TEN);
+			if (id == 1){
+				Number a = (log10_sp >= ONE) ? log10_sp : ONE;  // AP multiplier
+				if(_get_ach(48)) a = a * a;
+				return a;
+			}
+			if (id == 2){
+				Number a = (log10_sp >= ONE) ? log10_sp : ONE;  // Am generation multiplier
+				if(_get_ach(48)) a = a * a;
+				return a;
+			}
+			if (id == 3){
+				Number a = (log10_sp >= ONE) ? log10_sp : ONE;  // SP multiplier
+				a = a * a;
+				if(_get_ach(48)) a = a * a;
+				return a;
+			}
+			return ONE;
+		}
 		
+		// ------------------------------ Beta related items.
+
 		[[nodiscard]] Number _get_beta_aero_effect_a() {
-			Number a = ONE + _to_Number(0.2) * this->upgrade[56].level;
+			Number a = ONE + 0.15 * this->upgrade[74].level;
 			return a;
 		}
 		[[nodiscard]] Number _get_beta_aero_effect_i() {
-			Number a = ONE + _to_Number(0.1) * this->upgrade[57].level;
+			Number a = ONE + 0.075 * this->upgrade[75].level;
 			return a;
+		}
+
+		// Returns whether Beta Milestone (id+1) is completed.
+		bool _get_BM(int id) {
+			if (this->beta.beta >= bm[id]) return true;
+
+			Number diff = bm[id] - this->beta.beta;
+			if (diff.r.layer == 0.0L && diff.r.sign && diff.r.neg > 0 &&
+			        diff.r.val < 0.01L) {
+				return true;
+			}
+			return false;
 		}
 
 		// Returns how much BP is gained on Beta.
@@ -2733,11 +3595,11 @@ class player_ {
 
 		[[nodiscard]] Number _get_BIM_effect() {
 			_update_BIM();
-			if (this->beta.BIM == TEN) return _to_Number(0.1);
-			Number prod = _to_Number(11);
+			if (this->beta.BIM == TEN) return 0.1;
+			Number prod = 11;
 			prod = prod - this->alpha.AIM;
-			prod = prod.log(_to_Number(121));
-			prod = ((ONE + ONE) * prod * prod + _to_Number(0.5)) / _to_Number(5);
+			prod = prod.log(121);
+			prod = ((ONE + ONE) * prod * prod + 0.5) / 5;
 			return prod.normalize();
 		}
 
@@ -2750,7 +3612,7 @@ class player_ {
 		[[nodiscard]] Number _get_Bm_effect(int id) const {
 			if (id < 1 || id > 5) return ONE;
 			Number base = ONE;
-			if(this->beta.score > TEN) base = ONE + (this->beta.score).pow(Real(0.5)) / _to_Number(100);
+			if(this->beta.score > TEN) base = ONE + (this->beta.score).pow(0.5) / 100;
 
 			if (id >= 1 && id <= 3) return base;
 			if (id == 4) {
@@ -2783,19 +3645,18 @@ class player_ {
 
 		[[nodiscard]] Number _get_BDF() const {
 			Number init = this->beta.decay_factor;
-			// Placeholder.
 			Number dif = ONE - init;
 			dif = dif.pow(_get_Bm_effect(2));
 			init = ONE - dif;
 			return init;
 		}
-		
+
 		[[nodiscard]] Number _get_BD_step(Number matter) {
 			if(matter <= TEN.pow(TEN)) return ONE;
-			else if(matter > TEN.pow(TEN) && matter <= TEN.pow(TEN.pow(TEN))) return _to_Number(2);
-			else if(matter > TEN.pow(TEN.pow(TEN)) && matter <= TEN.pow(TEN.pow(TEN.pow(TEN)))) return _to_Number(3);
+			else if(matter > TEN.pow(TEN) && matter <= TEN.pow(TEN.pow(TEN))) return 2;
+			else if(matter > TEN.pow(TEN.pow(TEN)) && matter <= TEN.pow(TEN.pow(TEN.pow(TEN)))) return 3;
 			else if(matter > TEN.pow(TEN.pow(TEN.pow(TEN)))/* && matter <= TEN.pow(TEN.pow(TEN.pow(TEN.pow(TEN))))*/)
-				return _to_Number(4);
+				return 4;
 			return ONE;
 		}
 
@@ -2806,18 +3667,19 @@ class player_ {
 			Number x = matter;
 			if(matter > TEN && matter <= TEN.pow(TEN)) {
 				x = x.log(TEN);
-			}
-			else if(matter > TEN.pow(TEN) && matter <= TEN.pow(TEN.pow(TEN))) {
+			} else if(matter > TEN.pow(TEN) && matter <= TEN.pow(TEN.pow(TEN))) {
 				x = x.log(TEN).log(TEN);
-			}
-			else if(matter > TEN.pow(TEN.pow(TEN)) && matter <= TEN.pow(TEN.pow(TEN.pow(TEN)))) {
+			} else if(matter > TEN.pow(TEN.pow(TEN)) && matter <= TEN.pow(TEN.pow(TEN.pow(TEN)))) {
 				x = x.log(TEN).log(TEN).log(TEN);
-			}
-			else if(matter > TEN.pow(TEN.pow(TEN.pow(TEN)))/* && matter <= TEN.pow(TEN.pow(TEN.pow(TEN.pow(TEN))))*/) {
+			} else if(matter > TEN.pow(TEN.pow(TEN.pow(TEN)))/* && matter <= TEN.pow(TEN.pow(TEN.pow(TEN.pow(TEN))))*/) {
 				x = x.log(TEN).log(TEN).log(TEN).log(TEN);
 			}
-			Number factor = BDN.pow((TEN - x) / _to_Number(9)) * BDF.pow((x - ONE) / _to_Number(9));
-			factor = factor.pow(BDIM / TEN);
+			Number factor = BDN.pow((TEN - x) / 9) * BDF.pow((x - ONE) / 9);
+			int step = (int)(_get_BD_step(matter)._to_long_double()) - 1;
+			Number exp = 0.1 * BDIM;
+			if(this->beta.weights[step] >= ZERO) exp += 0.9 * (BDIM.pow(this->beta.weights[step] + _ONE).pow(5));
+			else exp += 0.9 * (BDIM.pow(this->beta.weights[step] + _ONE).pow(1));
+			factor = factor.pow(exp);
 			return factor.pow(time);
 		}
 
@@ -2826,52 +3688,68 @@ class player_ {
 			if(matter <= TEN) return matter * _get_BDN().pow(time);
 			Number BDN = _get_BDN(), BDF = _get_BDF(), BDIM = _get_BDIM();
 			Number x = matter;
-			if(matter > TEN && matter <= TEN.pow(TEN)) {
-				x = x.log(TEN);
-				Number factor = BDN.pow((TEN - x) / _to_Number(9)) * BDF.pow((x - ONE) / _to_Number(9));
-				factor = factor.pow(BDIM / TEN);
-				return matter * factor.pow(time);
+			Number m = matter;
+			if(m > TEN) {
+				x = matter.log(TEN);
+				Number factor = BDN.pow((TEN - x) / 9) * BDF.pow((x - ONE) / 9);
+				Number exp = 0.1 * BDIM;
+				if(this->beta.weights[0] >= ZERO) exp += 0.9 * (BDIM.pow(this->beta.weights[0] + _ONE).pow(5));
+				else exp += 0.9 * (BDIM.pow((this->beta.weights[0] + _ONE).pow(Number(1))));
+				factor = factor.pow(exp);
+				m = m * factor.pow(time);
 			}
-			else if(matter > TEN.pow(TEN) && matter <= TEN.pow(TEN.pow(TEN))) {
-				x = x.log(TEN).log(TEN);
-				Number factor = BDN.pow((TEN - x) / _to_Number(9)) * BDF.pow((x - ONE) / _to_Number(9));
-				factor = factor.pow(BDIM / TEN);
-				return matter.pow(factor.pow(time));
+			if(m > TEN.pow(TEN)) {
+				x = matter.log(TEN).log(TEN);
+				Number factor = BDN.pow((TEN - x) / 9) * BDF.pow((x - ONE) / 9);
+				Number exp = 0.1 * BDIM;
+				if(this->beta.weights[0] >= ZERO) exp += 0.9 * (BDIM.pow(this->beta.weights[1] + _ONE).pow(5));
+				else exp += 0.9 * (BDIM.pow((this->beta.weights[0] + _ONE).pow(Number(1))));
+				factor = factor.pow(exp);
+				m = m.pow(factor.pow(time));
 			}
-			else if(matter > TEN.pow(TEN.pow(TEN)) && matter <= TEN.pow(TEN.pow(TEN.pow(TEN)))) {
-				x = x.log(TEN).log(TEN).log(TEN);
-				Number factor = BDN.pow((TEN - x) / _to_Number(9)) * BDF.pow((x - ONE) / _to_Number(9));
-				factor = factor.pow(BDIM / TEN);
-				return matter.dilate(factor.pow(time));
+			if(m > TEN.pow(TEN.pow(TEN))) {
+				x = matter.log(TEN).log(TEN).log(TEN);
+				Number factor = BDN.pow((TEN - x) / 9) * BDF.pow((x - ONE) / 9);
+				Number exp = 0.1 * BDIM;
+				if(this->beta.weights[0] >= ZERO) exp += 0.9 * (BDIM.pow(this->beta.weights[2] + _ONE).pow(5));
+				else exp += 0.9 * (BDIM.pow((this->beta.weights[0] + _ONE).pow(Number(1))));
+				factor = factor.pow(exp);
+				m = m.dilate(factor.pow(time));
 			}
-			else if(matter > TEN.pow(TEN.pow(TEN.pow(TEN)))/* && matter <= TEN.pow(TEN.pow(TEN.pow(TEN.pow(TEN))))*/) {
-				x = x.log(TEN).log(TEN).log(TEN).log(TEN);
-				Number factor = BDN.pow((TEN - x) / _to_Number(9)) * BDF.pow((x - ONE) / _to_Number(9));
-				factor = factor.pow(BDIM / TEN);
-				return matter.tetrate(factor.pow(time));
+			if(m > TEN.pow(TEN.pow(TEN.pow(TEN)))) {
+				x = matter.log(TEN).log(TEN).log(TEN).log(TEN);
+				Number factor = BDN.pow((TEN - x) / 9) * BDF.pow((x - ONE) / 9);
+				Number exp = 0.1 * BDIM;
+				if(this->beta.weights[0] >= ZERO) exp += 0.9 * (BDIM.pow(this->beta.weights[3] + _ONE).pow(5));
+				else exp += 0.9 * (BDIM.pow((this->beta.weights[0] + _ONE).pow(Number(1))));
+				factor = factor.pow(exp);
+				m = m.tetrate(factor.pow(time));
 			}
-			return matter;
+			return m;
 		}
-		
+
 
 		// How much matter is kept.
 		[[nodiscard]] Number _get_BD_kept(Number matter) {
 			return _get_BD(matter, ONE);
 		}
 
-		
-		
+		[[nodiscard]] float _get_BE() {
+			float init = 0.0f;
+			if(!this->upgrade[76].level.is_zero()) init += 1.0f;
+			return init;
+		}
+
+
 		// ------------------------- Upgrade related items.
-		
+
 		// Returns second scale.
 		[[nodiscard]] Number _second_scale() const {
-			return _to_Number(4) * _to_Number(0.99).pow(this->upgrade[25].level);
+			return 4 * Number(0.99).pow(this->upgrade[25].level);
 		}
 
 		[[nodiscard]] Number _get_third_scale(const Number& s, const Number& t) const {
-			static const Number THRESHOLD = _to_Number(10).pow(
-			                                    _to_Number(10).pow(_to_Number(10))
-			                                );
+			static const Number THRESHOLD = TEN.pow(TEN.pow(10));
 
 			if (t <= THRESHOLD) return s;
 
@@ -2884,7 +3762,7 @@ class player_ {
 			Number log_log_t = log_t.log(TEN);
 			if (log_log_t <= ZERO) return s;
 
-			Number k = log_log_t / _to_Number(10);
+			Number k = log_log_t / 10;
 
 			Number exponent = (log_s < ONE) ? (ONE / k) : k;
 
@@ -2892,9 +3770,9 @@ class player_ {
 
 			if (new_log_s < log_s) new_log_s = log_s;
 
-			if (new_log_s < _to_Number(1e-6L)) new_log_s = _to_Number(1e-6L);
+			if (new_log_s < 1e-6L) new_log_s = 1e-6L;
 
-			return _to_Number(10).pow(new_log_s);
+			return _TEN.pow(new_log_s);
 		}
 
 		// Returns cost scale with given highest value. (this->alpha.highest)
@@ -2965,29 +3843,29 @@ class player_ {
 			}
 			// BAU3
 			if (id == 32) {
-				Number exp = _to_Number(3) * _to_Number(2).pow(k);
-				return _to_Number(10).pow(exp);
+				Number exp = 3 * Number(2).pow(k);
+				return _TEN.pow(exp);
 			}
 			// BAU4
 			if (id == 33) {
-				Number exp = _to_Number(5) * _to_Number(2).pow(k);
-				return _to_Number(10).pow(exp);
+				Number exp = 5 * Number(2).pow(k);
+				return _TEN.pow(exp);
 			}
 			// BAU5 - 7
-			if (id == 34) return _to_Number(1e6);
-			if (id == 35) return _to_Number(1e10);
-			if (id == 36) return _to_Number(1e15);
-			if (id == 37) return _to_Number(1e20);
-			if (id == 38) return _to_Number(1e25);
+			if (id == 34) return 1e6;
+			if (id == 35) return 1e10;
+			if (id == 36) return 1e15;
+			if (id == 37) return 1e20;
+			if (id == 38) return 1e25;
 			if (id == 39) {
 				Number i   = this->upgrade[id].init_cost;
 				Number exp = k;
 				return i * this->upgrade[id].scale.pow(exp);
 			}
 
-			// Alpha Amplifiers (40-47) / Alpha Intensifiers (48-55)
-			// Alpha Aeromagnifiers (56, 57)
-			if (40 <= id && id < 58) {
+			// Beta Amplifiers / Beta Intensifiers
+			// Beta Aeromagnifiers
+			if (40 <= id && id < 76) {
 				Number i   = this->upgrade[id].init_cost;
 				Number exp = k * k / 2 + k / 2;
 				Number cost = i * this->upgrade[id].scale.pow(exp);
@@ -3001,6 +3879,7 @@ class player_ {
 				s = _get_third_scale(s, final_cost);
 				return i * s.pow(exp);
 			}
+			if(id == 76) return _ONE;
 
 			return ZERO;
 		}
@@ -3014,18 +3893,18 @@ class player_ {
 			if (T < _level_cost(id, x)) return x;
 
 			Number lo = x;
-			Number hi = x + _to_Number(2);
+			Number hi = x + 2;
 
 			for (int rep = 0; rep < 60; ++rep) {
 				if (_level_cost(id, hi) > T) break;
 				Number span = hi - x;
 				if (span <= ZERO) span = ONE;
-				hi = x + span * _to_Number(2);
-				if (hi <= x) hi = x * _to_Number(2);
+				hi = x + span * 2;
+				if (hi <= x) hi = x * 2;
 			}
 
 			for (int iter = 0; iter < 100; ++iter) {
-				Number mid = (lo + hi) / _to_Number(2);
+				Number mid = (lo + hi) / 2;
 				mid = floor(mid);
 				if (mid <= lo || mid >= hi) break;
 				if (_level_cost(id, mid) <= T) lo = mid;
@@ -3122,12 +4001,32 @@ class player_ {
 			}
 
 			// Alpha Amplifiers / Alpha Intensifiers
-			// Alpha Aeromagnifiers (56, 57), consumed with Am
+			// Alpha Aeromagnifiers (56, 57), consume Am
 			if (40 <= id && id < 58) {
 				Number l    = this->upgrade[id].level;
 				Number cost = _level_cost(id, l);
 				if (this->alpha.score >= cost) {
 					this->alpha.score -= cost;
+					this->upgrade[id].level = level_inc(this->upgrade[id].level);
+				}
+				return;
+			}
+
+			if (58 <= id && id < 76) {
+				Number l    = this->upgrade[id].level;
+				Number cost = _level_cost(id, l);
+				if (this->beta.score >= cost) {
+					this->beta.score -= cost;
+					this->upgrade[id].level = level_inc(this->upgrade[id].level);
+				}
+				return;
+			}
+
+			if (id >= 76 && id <= 76) {
+				if (this->upgrade[id].level.is_one()) return; // already bought
+				Number cost = this->_level_cost(id, this->upgrade[id].level);
+				if (this->beta.point >= cost) {
+					this->beta.point -= cost;
 					this->upgrade[id].level = level_inc(this->upgrade[id].level);
 				}
 				return;
@@ -3168,7 +4067,7 @@ class player_ {
 				}
 
 				this->upgrade[id].level = M;
-				this->pre_alpha.score   = total * _to_Number(0.001);
+				this->pre_alpha.score   = total * 0.001;
 			}
 
 			// AU1-AU4.
@@ -3200,14 +4099,14 @@ class player_ {
 					}
 
 					// S = log10(T) / 100 = log_{1e100}(T)
-					Number S = T.log(TEN) / _to_Number(100);
+					Number S = T.log(TEN) / 100;
 
 					Number M;
-					if (S <= _to_Number(11)) {
+					if (S <= 11) {
 						M = floor(S);
 					} else {
-						Number disc = S * _to_Number(4) - _to_Number(43);
-						M = floor((disc.pow(_to_Number(0.5)) + _to_Number(21)) / _to_Number(2));
+						Number disc = S * 4 - 43;
+						M = floor((disc.pow(0.5) + 21) / 2);
 					}
 
 					if (M <= x) {
@@ -3218,7 +4117,7 @@ class player_ {
 					if (M < x + ONE) M = x + ONE;
 
 					this->upgrade[26].level = M;
-					this->pre_alpha.score = T * _to_Number(0.001);
+					this->pre_alpha.score = T * 0.001;
 				}
 
 				for (int loop = 0; loop < 1024; ++loop) {
@@ -3337,15 +4236,56 @@ class player_ {
 				}
 
 				this->upgrade[id].level = M;
-				this->alpha.score   = total * _to_Number(0.001);
+				this->alpha.score   = total * 0.001;
 			}
-			// ------------------------------------------------------------
-			// Fallback: unknown id, do nothing.
-			// ------------------------------------------------------------
 
+			// Beta Amplifiers / Beta Intensifiers (58-73)
+			// Beta Amp. / Int. Aeromagnifiers (74-75)
+			if (58 <= id && id < 76) {
+				Number x     = this->upgrade[id].level;
+				Number total = this->beta.score;
+				if (total <= ZERO) {
+					_try_upgrade(id);
+					return;
+				}
+
+				Number first_cost = _level_cost(id, x);
+				if (total < first_cost) {
+					_try_upgrade(id);
+					return;
+				}
+
+				Number M = _bulk_approx_level(id, x, total);
+
+				if (M <= x) {
+					_try_upgrade(id);
+					return;
+				}
+
+				long double diff_ld = (M - x)._to_long_double();
+				if (std::isfinite(diff_ld) && diff_ld > 0.5L && diff_ld < 5000.0L) {
+					long long limit = (long long)diff_ld + 3;
+					for (long long j = 0; j < limit; ++j) {
+						Number c = _level_cost(id, this->upgrade[id].level);
+						if (this->beta.score < c) break;
+						this->beta.score -= c;
+						this->upgrade[id].level += ONE;
+					}
+				}
+
+				this->upgrade[id].level = M;
+				this->beta.score   = total * 0.001;
+			}
+
+			if (id >= 76 && id <= 76) {
+				if (this->upgrade[id].level.is_one()) return;
+				Number cost = this->_level_cost(id, this->upgrade[id].level);
+				if (this->beta.point >= cost) {
+					this->beta.point -= cost;
+					this->upgrade[id].level = ONE;
+				}
+			}
 			_try_upgrade(id);
-			if (this->upgrade[20].level < ZERO) this->upgrade[20].level = ZERO;
-			if (this->upgrade[21].level < ZERO) this->upgrade[21].level = ZERO;
 		}
 		// Upgrades all pre-prestige upgrades(or max all).
 		// Includes A1-8,I1-8,AA1-AA8,AI1-AI8.
@@ -3355,7 +4295,7 @@ class player_ {
 				this->pre_alpha.score = cur;
 				_try_upgrade(i);
 				_try_upgrade_bulk(i);
-				if(cur < _to_Number(1e100)) cur = this->pre_alpha.score;
+				if(cur < 1e100) cur = this->pre_alpha.score;
 			}
 			cur = this->alpha.score;
 			if (!this->upgrade[34].level.is_zero()) {
@@ -3363,13 +4303,13 @@ class player_ {
 					this->alpha.score = cur;
 					_try_upgrade(i + 40);
 					_try_upgrade_bulk(i + 40);
-					if(cur < _to_Number(1e100)) cur = this->alpha.score;
+					if(cur < 1e100) cur = this->alpha.score;
 				}
 			}
 		}
 
 		[[nodiscard]] Number _get_game_speed() {
-			Number base = _to_Number(_accel);
+			Number base = _accel;
 			return base;
 		}
 };
@@ -3377,101 +4317,91 @@ class player_ {
 player_ player;
 long double _get_time();
 
+bool simulator_::_get_ach(int id){
+	return player._get_ach(id);
+}
+
+Number simulator_::_get_SP_effect(int id){
+	return player._get_SP_effect(id);
+}
+
 // Initialize the cost.
-void cost_init() {
+void cost_init(player_& player) {
 	for (int i = 0; i < 8; i ++) {
-		player.upgrade[i].scale = _to_Number(1.5);
-		player.upgrade[i].init_cost = _to_Number(1)
-		                              * TEN.pow(_to_Real(3 * i * i));
-		player.upgrade[i + 8].scale = _to_Number(3);
-		player.upgrade[i + 8].init_cost = _to_Number(100)
-		                                  * TEN.pow(_to_Real(3 * i * i));
-		player.upgrade[40 + i].scale = _to_Number(1.5);
-		player.upgrade[40 + i].init_cost = _to_Number(1)
-		                                   * TEN.pow(_to_Real(3 * i * i))
-		                                   * _to_Number(1e2);
-		player.upgrade[48 + i].scale = _to_Number(3);
-		player.upgrade[48 + i].init_cost = _to_Number(100)
-		                                   * TEN.pow(_to_Real(3 * i * i))
-		                                   * _to_Number(1e2);
-		player.upgrade[58 + i].scale = _to_Number(1.5);
-		player.upgrade[58 + i].init_cost = _to_Number(1)
-		                                   * TEN.pow(_to_Real(3 * i * i))
-		                                   * _to_Number(1e3);
-		player.upgrade[66 + i].scale = _to_Number(3);
-		player.upgrade[66 + i].init_cost = _to_Number(100)
-		                                   * TEN.pow(_to_Real(3 * i * i))
-		                                   * _to_Number(1e3);
+		player.upgrade[i].scale = 1.5;
+		player.upgrade[i].init_cost = TEN.pow(3 * i * i);
+		player.upgrade[i + 8].scale = 3;
+		player.upgrade[i + 8].init_cost = 100 * TEN.pow(3 * i * i);
+		player.upgrade[40 + i].scale = 1.5;
+		player.upgrade[40 + i].init_cost = 100 * TEN.pow(3 * i * i);
+		player.upgrade[48 + i].scale = 3;
+		player.upgrade[48 + i].init_cost = 10000 * TEN.pow(3 * i * i);
+		player.upgrade[58 + i].scale = 1.5;
+		player.upgrade[58 + i].init_cost = 1000 * TEN.pow(3 * i * i);
+		player.upgrade[66 + i].scale = 3;
+		player.upgrade[66 + i].init_cost = 100000 * TEN.pow(3 * i * i);
 	}
-	player.upgrade[16].init_cost = _to_Number(1e16);
-	player.upgrade[17].init_cost = _to_Number(1e30);
-	player.upgrade[18].init_cost = _to_Number(1e50);
-	player.upgrade[19].init_cost = _to_Number(1e100);
-	player.upgrade[20].scale = _to_Number(1e3);
-	player.upgrade[20].init_cost = _to_Number(1e10);
-	player.upgrade[21].scale = _to_Number(1e5);
-	player.upgrade[21].init_cost = _to_Number(1e20);
+	player.upgrade[16].init_cost = 1e16;
+	player.upgrade[17].init_cost = 1e30;
+	player.upgrade[18].init_cost = 1e50;
+	player.upgrade[19].init_cost = 1e100;
+	player.upgrade[20].scale = 1e3;
+	player.upgrade[20].init_cost = 1e10;
+	player.upgrade[21].scale = 1e5;
+	player.upgrade[21].init_cost = 1e20;
 
 	player.upgrade[30].scale = TEN;
 	player.upgrade[30].init_cost = TEN;
 	player.upgrade[31].scale = TEN;
-	player.upgrade[31].init_cost = _to_Number(100);
-	player.upgrade[32].scale = _to_Number(2);
-	player.upgrade[32].init_cost = _to_Number(1e3);
-	player.upgrade[33].scale = _to_Number(2);
-	player.upgrade[33].init_cost = _to_Number(1e5);
+	player.upgrade[31].init_cost = 100;
+	player.upgrade[32].scale = 2;
+	player.upgrade[32].init_cost = 1e3;
+	player.upgrade[33].scale = 2;
+	player.upgrade[33].init_cost = 1e5;
 	player.upgrade[34].scale = ONE;
-	player.upgrade[34].init_cost = _to_Number(1e6);
+	player.upgrade[34].init_cost = 1e6;
 	player.upgrade[35].scale = ONE;
-	player.upgrade[35].init_cost = _to_Number(1e10);
-	player.upgrade[36].init_cost = _to_Number(1e15);
+	player.upgrade[35].init_cost = 1e10;
+	player.upgrade[36].init_cost = 1e15;
 	player.upgrade[36].scale = ONE;
-	player.upgrade[37].init_cost = _to_Number(1e20);
+	player.upgrade[37].init_cost = 1e20;
 	player.upgrade[37].scale = ONE;
-	player.upgrade[38].init_cost = _to_Number(1e25);
+	player.upgrade[38].init_cost = 1e25;
 	player.upgrade[38].scale = ONE;
-	player.upgrade[39].init_cost = _to_Number(1e30);
-	player.upgrade[39].scale = _to_Number(100);
+	player.upgrade[39].init_cost = 1e30;
+	player.upgrade[39].scale = 100;
 
-	player.upgrade[56].scale = _to_Number(1e3);
-	player.upgrade[56].init_cost = _to_Number(1e10);
-	player.upgrade[57].scale = _to_Number(1e5);
-	player.upgrade[57].init_cost = _to_Number(1e20);
-	player.upgrade[74].scale = _to_Number(1e3);
-	player.upgrade[74].init_cost = _to_Number(1e10);
-	player.upgrade[75].scale = _to_Number(1e5);
-	player.upgrade[75].init_cost = _to_Number(1e20);
+	player.upgrade[56].scale = 1e3;
+	player.upgrade[56].init_cost = 1e10;
+	player.upgrade[57].scale = 1e5;
+	player.upgrade[57].init_cost = 1e20;
+	player.upgrade[74].scale = 1e3;
+	player.upgrade[74].init_cost = 1e10;
+	player.upgrade[75].scale = 1e5;
+	player.upgrade[75].init_cost = 1e20;
 }
 
 
 // Initialization.
-void init() {
-	player.pre_alpha.score = ONE;				//Give 1 score to buy initial A1.
-	/*
-	player.options[0].val = ZERO;				//Initial array presets.
-	player.options[1].val = _to_Number(60);
-	player.options[2].val = _to_Number(10);
-	player.options[3].val_s = "save1.txt";
-	player.options[4].val = _to_Number(0);
-	player.options[5].val = _to_Number(50);
-	*/
-	cost_init();
-
+void init(player_& player) {
+	player.pre_alpha.score = ONE;
+	cost_init(player);
 
 	for (int i = 0; i < 1000; ++i) {
 		player.ach[i] = false;
 		player.story[i] = false;
 	}
 
-	player.GIM = TEN;						//Initial GIM.
-	player.PIM = TEN;						//Initial PIM.
-	player.PF = TEN;						//Initial PF.
-	player.pre_alpha.highest = ONE;		//Initial score. (for prestige)
-	player.last_tick = _get_time();			//Time init.
-	player.currenttab = 1;					//Tab init.
+	player.GIM = TEN;						// Initial GIM.
+	player.PIM = TEN;						// Initial PIM.
+	player.PF = TEN;						// Initial PF.
+	player.pre_alpha.highest = ONE;		    // Initial score. (for prestige)
+	player.last_tick = _get_time();			// Time init.
+	player.currenttab = 1;					// Tab init.
 	player.unlockedtabs = 3;
-	player.unlocked_prestige = false;		//Self-explanatory.
+	player.unlocked_prestige = false;		// Self-explanatory.
 
+	player.time_flux = 0;
 	player.pre_alpha.time = ZERO;
 	player.alpha.time = ZERO;
 	player.fastest_ap_per_min = ZERO;
@@ -3481,10 +4411,11 @@ void init() {
 	player.alpha.AIM     = TEN;
 	player.beta.score   = ONE;
 	player.beta.time = ZERO;
+	player.alpha.simulator = {};
 }
 
 // Initalization on an Aeromagnifier reset.
-void init_aero() {
+void init_aero(player_& player) {
 	player.pre_alpha.time = ZERO;
 	if(player._get_AM(0)) return;
 	if(player.upgrade[19].level.is_one()) player.pre_alpha.score = TEN * TEN * TEN * TEN; //** PU4: Start with 10000.00 matter.
@@ -3497,7 +4428,7 @@ void init_aero() {
 }
 
 // Initalization on an Alpha Aeromagnifier reset.
-void init_alpha_aero() {
+void init_alpha_aero(player_& player) {
 	player.alpha.score = TEN * TEN;
 	for (int i = 0; i < 8; i ++) {
 		player.alpha.amount[i] = ONE;
@@ -3507,10 +4438,10 @@ void init_alpha_aero() {
 }
 
 // Initialization after prestige once.
-void init_prestige() {
+void init_prestige(player_& player) {
 	if(player.pre_alpha.score > player.pre_alpha.highest) player.pre_alpha.highest = player.pre_alpha.score; //Update highest score, for recalculate GIM, etc.
-	init_aero();
-	cost_init();
+	init_aero(player);
+	cost_init(player);
 	if(player.upgrade[19].level.is_one()) player.pre_alpha.score = TEN * TEN * TEN * TEN; //** PU4: Start with 10000.00 matter.
 	else player.pre_alpha.score = ONE;
 	for (int i = 0; i < 8; i ++) {
@@ -3525,7 +4456,7 @@ void init_prestige() {
 }
 
 // Initialization after (performing) alpha once.
-void init_alpha() {
+void init_alpha(player_& player) {
 	Number ap_gained = player._get_AP();
 	player.alpha.point += ap_gained;
 	player.alpha.alpha += player._get_alpha();
@@ -3533,13 +4464,13 @@ void init_alpha() {
 	// Update AP/min
 	Number seconds = player.alpha.time;
 	if (seconds > ZERO) {
-		Number ap_per_min = ap_gained * _to_Number(60) / seconds;
+		Number ap_per_min = ap_gained * 60 / seconds;
 		if (ap_per_min > player.fastest_ap_per_min) {
 			player.fastest_ap_per_min = ap_per_min;
 		}
 	}
 
-	init_prestige();
+	init_prestige(player);
 	player.pre_alpha.score = ONE;
 	for(int i = 16; i < 20; i ++) {
 		if(!player._get_AM(4)) player.upgrade[i].level = ZERO;
@@ -3560,10 +4491,10 @@ void init_alpha() {
 // Notice that respeccing isn't equal to performing an alpha, or any respective prestige layer.
 // While performing an alpha gives you reward, this doesn't give you any reward from your current alpha.
 // It seems that respeccing is a waste of time, but it will be widely used for various strategies.
-void respec_alpha() {
+void respec_alpha(player_& player) {
 	// player.alpha.point += player._get_AP();
 	// player.alpha.alpha += player._get_alpha();
-	init_prestige();
+	init_prestige(player);
 	player.pre_alpha.score = ONE;
 	for(int i = 16; i < 20; i ++) {
 		if(!player._get_AM(4)) player.upgrade[i].level = ZERO;
@@ -3580,7 +4511,7 @@ void respec_alpha() {
 	player.pre_alpha.highest = ONE;
 }
 
-void init_beta() {
+void init_beta(player_& player) {
 	Number bp_gained = player._get_BP();
 	player.beta.point += bp_gained;
 	player.beta.beta += player._get_beta();
@@ -3588,23 +4519,23 @@ void init_beta() {
 	// Update BP/min
 	Number seconds = player.beta.time;
 	if (seconds > ZERO) {
-		Number bp_per_min = bp_gained * _to_Number(60) / seconds;
+		Number bp_per_min = bp_gained * 60 / seconds;
 		if (bp_per_min > player.fastest_bp_per_min) {
 			player.fastest_bp_per_min = bp_per_min;
 		}
 	}
 
-	init_alpha();
+	init_alpha(player);
 	player.alpha.score = ONE;
 	for(int i = 0; i < 58; i ++) {
 		player.upgrade[i].level = ZERO;
 	}
-	for(int i = 0; i < 8; i ++){
+	for(int i = 0; i < 8; i ++) {
 		player.alpha.amount[i] = ONE;
 	}
 	player.upgrade[34].level = ONE;
 	player.upgrade[35].level = ONE;
-	for(int i = 1; i <= 48; i ++) {
+	for(int i = 1; i <= 52; i ++) {
 		player.ach[i] = false;
 	}
 
@@ -3683,7 +4614,7 @@ void stop_bgm() {
 // Section 6 - GUI related items initialization.
 // ============================================================
 
-static ImVec4 _get_BD_color(){
+static ImVec4 _get_BD_color() {
 	long double t = _get_time() / 1000.0;
 	return ImVec4(1.0f, 1.0f-0.425f-0.425*sin(t), 0.5f-0.5*sin(t), 1.0f);
 }
@@ -3830,6 +4761,7 @@ inline void RenderNotifications() {
 
 static ID3D11ShaderResourceView* g_splash_srv = nullptr;
 static bool   g_splash_done      = false;
+static ImFont* g_font_small      = nullptr;      // smaller font for on-ball life text
 static double g_splash_start     = 0.0;
 static const double SPLASH_DURATION_MS = 1500.0;
 static const double SPLASH_FADE_MS     = 400.0;
@@ -4017,7 +4949,7 @@ bool GUI_Init() {
 	                 };
 	::RegisterClassExW(&wc);
 
-	HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"Project: Simulation v1.0.0: The Augmentation Apeirogon Update.",
+	HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"Project: Simulation v1.0.1: The Alpha Revamp Update.",
 	                            WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800,
 	                            nullptr, nullptr, wc.hInstance, nullptr);
 
@@ -4052,6 +4984,7 @@ bool GUI_Init() {
 	ImFont* font_normal = nullptr;
 	if (std::filesystem::exists("consola.ttf")) {
 		font_normal = io.Fonts->AddFontFromFileTTF("consola.ttf", 14.0f);
+		g_font_small  = io.Fonts->AddFontFromFileTTF("consola.ttf", 9.0f);
 	} else {
 		cout << "[WARNING] consola.ttf not found. Using default font." << endl;
 	}
@@ -4145,12 +5078,12 @@ static string N2S(const Number& n) {
 }
 
 //Init. draw tabs.
-void DrawMatterTab();
-void DrawOptionsTab();
-void DrawPrestigeTab();
-void DrawTopBar();
-void DrawAlphaTab();
-void DrawStoryTab();
+void DrawMatterTab(player_& player);
+void DrawOptionsTab(player_& player);
+void DrawPrestigeTab(player_& player);
+void DrawTopBar(player_& player);
+void DrawAlphaTab(player_& player);
+void DrawStoryTab(player_& player);
 
 // A1-A8 / I1-I8 Buy mode switch
 // true  = Buy Max
@@ -4161,7 +5094,7 @@ static bool g_bulk_buy = true;
 static Number m_rate[8] = {ZERO,ZERO,ZERO,ZERO,ZERO,ZERO,ZERO,ZERO};
 
 //An upgrade card includes A(i+1) and I(i+1).
-void DrawUpgradeCard(int i) {
+void DrawUpgradeCard(player_& player, int i) {
 	if (i % 4 != 0) ImGui::SameLine();
 	ImGui::BeginGroup();
 	ImGui::BeginChild(("##upg" + to_string(i)).c_str(), ImVec2(300, 200), true);
@@ -4170,7 +5103,7 @@ void DrawUpgradeCard(int i) {
 	ImGui::Separator();
 
 	// Amplifier
-	Number a = _to_Number(3)
+	Number a = 3
 	           * player.upgrade[i].level
 	           * player._get_aero_effect_a()
 	           * player._get_ach_effect(1)
@@ -4184,8 +5117,6 @@ void DrawUpgradeCard(int i) {
 	             * player._get_aero_effect_i()
 	             * player._get_Am_effect(4);
 
-	//Softcap
-	if(exp >= _to_Number(5e6)) exp = exp.pow(_to_Number(0.5)) * _to_Number(5e6).pow(_to_Number(0.5));
 	Number effect = a.pow(exp);
 
 	m_rate[i] = effect;
@@ -4264,7 +5195,7 @@ void DrawUpgradeCard(int i) {
 	ImGui::EndGroup();
 }
 
-void DrawAlphaUpgradeCard(int i) {
+void DrawAlphaUpgradeCard(player_& player, int i) {
 	if (i % 4 != 0) ImGui::SameLine();
 	ImGui::BeginGroup();
 	ImGui::BeginChild(("##aupg" + to_string(i)).c_str(), ImVec2(300, 200), true);
@@ -4273,7 +5204,7 @@ void DrawAlphaUpgradeCard(int i) {
 	ImGui::Separator();
 
 	// Alpha Amplifier
-	Number aa_base = _to_Number(3)
+	Number aa_base = 3
 	                 * player.upgrade[40 + i].level
 	                 * player._get_alpha_aero_effect_a()
 	                 * player._get_story_effect(3);
@@ -4281,10 +5212,10 @@ void DrawAlphaUpgradeCard(int i) {
 	if (player.upgrade[36].level.is_one()) {
 		aa_base = aa_base * player._get_ach_effect(1);
 	}
-	if (player._get_ach(38)) {
+	if (player._get_SM(1)) {
 		aa_base = aa_base * player._get_story_effect(1);
 	}
-	if (player._get_ach(48)) {
+	if (player._get_SM(7)) {
 		Number base = player.pre_alpha.score;
 		Number mult = ONE;
 		if(base >= TEN) {
@@ -4346,7 +5277,7 @@ void DrawAlphaUpgradeCard(int i) {
 	ImGui::EndGroup();
 }
 
-void DrawBetaUpgradeCard(int i) {
+void DrawBetaUpgradeCard(player_& player, int i) {
 	if (i % 4 != 0) ImGui::SameLine();
 	ImGui::BeginGroup();
 	ImGui::BeginChild(("##bupg" + to_string(i)).c_str(), ImVec2(300, 200), true);
@@ -4355,14 +5286,14 @@ void DrawBetaUpgradeCard(int i) {
 	ImGui::Separator();
 
 	// Beta Amplifier
-	Number ba_base = _to_Number(3)
+	Number ba_base = 3
 	                 * player.upgrade[58 + i].level
 	                 * player._get_story_effect(3);
 
-	if (player._get_ach(38)) {
+	if (player._get_SM(1)) {
 		ba_base = ba_base * player._get_story_effect(1);
 	}
-	if (player._get_ach(48)) {
+	if (player._get_SM(7)) {
 		Number base = player.pre_alpha.score;
 		Number mult = ONE;
 		if(base >= TEN) {
@@ -4427,7 +5358,7 @@ void DrawBetaUpgradeCard(int i) {
 int subtab = 1;
 
 //Matter tab, the initial tab.
-void DrawMatterTab() {
+void DrawMatterTab(player_& player) {
 	ImGui::SetNextWindowPos(ImVec2(0, 42));
 	ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y - 42));
 	ImGui::Begin("##Matter", nullptr,
@@ -4489,25 +5420,26 @@ void DrawMatterTab() {
 	}
 	ImGui::Separator();
 	if(subtab == 1) {
-		ImGui::Text("Matter: %s  ( +%s/s",
-			            N2S(player.pre_alpha.score).c_str(),
-			            N2S(rate).c_str());
+		ImGui::Text("Matter: %s  ( +%s/s = (M1 * M2 *...* M8) ^ %s",
+		            N2S(player.pre_alpha.score).c_str(),
+		            N2S(rate).c_str(),
+		            N2S(player._get_GIM_effect()).c_str());
+		ImGui::SameLine();
+		if(player.unlocked_beta) {
+			ImGui::TextColored(_get_BD_color(), "->%s/s", N2S(player.rate_Number).c_str());
 			ImGui::SameLine();
-			if(player.unlocked_beta){
-				ImGui::TextColored(_get_BD_color(), "->%s/s", N2S(player.rate_Number).c_str());
-				ImGui::SameLine();
-			}
-			ImGui::Text(")");
-			ImGui::Text("GIM = %s -> ^%s to Mult.",
-			            N2S(player._get_GIM()).c_str(),
-			            N2S(player._get_GIM_effect()).c_str());
-			ImGui::Text("PIM: %s -> PF = %s.",
-			            N2S(player._get_PIM()).c_str(),
-						N2S(player._get_PF()).c_str());
-			ImGui::Separator();
-			
+		}
+		ImGui::Text(")");
+		ImGui::Text("GIM = %s -> ^%s to Mult.",
+		            N2S(player._get_GIM()).c_str(),
+		            N2S(player._get_GIM_effect()).c_str());
+		ImGui::Text("PIM: %s -> PF = %s.",
+		            N2S(player._get_PIM()).c_str(),
+		            N2S(player._get_PF()).c_str());
+		ImGui::Separator();
+
 		for (int i = 0; i < 8; ++ i) {
-			DrawUpgradeCard(i);
+			DrawUpgradeCard(player, i);
 		}
 		if (ImGui::Button("Max All (M)", ImVec2(200, 0)))
 			player._try_upgrade_bulk_all();
@@ -4528,11 +5460,12 @@ void DrawMatterTab() {
 			ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f),
 			                   "AA/AI system locked. Purchase BAU5 under Alpha > Break Alpha Upgrades.");
 		} else {
-			ImGui::Text("Alpha Matter (Am): %s  ( +%s/s",
+			ImGui::Text("Alpha Matter (Am): %s  ( +%s/s = (M1 * M2 *...* M8) ^ %s",
 			            N2S(player.alpha.score).c_str(),
-			            N2S(player.alpha.am_rate).c_str());
+			            N2S(player.rate_Number_Am).c_str(),
+			            N2S(player._get_AIM_effect()).c_str());
 			ImGui::SameLine();
-			if(player.unlocked_beta){
+			if(player.unlocked_beta) {
 				ImGui::TextColored(_get_BD_color(), "->%s/s", N2S(player.rate_Number_Am).c_str());
 				ImGui::SameLine();
 			}
@@ -4548,7 +5481,7 @@ void DrawMatterTab() {
 			ImGui::Separator();
 
 			for (int i = 0; i < 8; ++i) {
-				DrawAlphaUpgradeCard(i);
+				DrawAlphaUpgradeCard(player, i);
 			}
 
 			ImGui::Separator();
@@ -4573,11 +5506,12 @@ void DrawMatterTab() {
 			}
 		}
 	} else if (subtab == 3) {
-		ImGui::Text("Beta Matter (Bm): %s  ( +%s/s",
-		            N2S(player.beta.score).c_str(),
-		            N2S(player.beta.bm_rate).c_str());
+		ImGui::Text("Beta Matter (Bm): %s  ( +%s/s = (M1 * M2 *...* M8) ^ %s",
+		            N2S(player.alpha.score).c_str(),
+		            N2S(player.rate_Number_Bm).c_str(),
+		            N2S(player._get_BIM_effect()).c_str());
 		ImGui::SameLine();
-		if(player.unlocked_beta){
+		if(player.unlocked_beta) {
 			ImGui::TextColored(_get_BD_color(), "->%s/s", N2S(player.rate_Number_Bm).c_str());
 			ImGui::SameLine();
 		}
@@ -4592,7 +5526,7 @@ void DrawMatterTab() {
 		ImGui::Separator();
 
 		for (int i = 0; i < 8; ++i) {
-			DrawBetaUpgradeCard(i);
+			DrawBetaUpgradeCard(player, i);
 		}
 
 		ImGui::Separator();
@@ -4641,7 +5575,7 @@ void DrawMatterTab() {
 			            N2S(player._get_GIM(player.pre_alpha.score)).c_str(),
 			            s1.c_str());
 			ImGui::SameLine();
-			if(ImGui::Button(("Prestige"))) init_prestige();
+			if(ImGui::Button(("Prestige"))) init_prestige(player);
 		}
 	} else {
 		if(player.upgrade[2].level.is_zero()) ImGui::Text("Obtain at least an A3 to unlock Prestige.");
@@ -4658,7 +5592,7 @@ void DrawMatterTab() {
 			            N2S(player._get_GIM(player.pre_alpha.score)).c_str(),
 			            s1.c_str());
 			ImGui::SameLine();
-			if(ImGui::Button(("Prestige"))) init_prestige();
+			if(ImGui::Button(("Prestige"))) init_prestige(player);
 		}
 	}
 
@@ -4672,7 +5606,7 @@ void DrawMatterTab() {
 		            N2S(player._get_alpha()).c_str());
 		if(player.pre_alpha.score >= inf) {
 			ImGui::SameLine();
-			if(ImGui::Button(("Alpha"))) init_alpha();
+			if(ImGui::Button(("Alpha"))) init_alpha(player);
 		}
 	}
 
@@ -4686,7 +5620,7 @@ void DrawMatterTab() {
 		            N2S(player._get_beta()).c_str());
 		if(player.alpha.score >= inf) {
 			ImGui::SameLine();
-			if(ImGui::Button(("Beta"))) init_beta();
+			if(ImGui::Button(("Beta"))) init_beta(player);
 		}
 	}
 
@@ -4710,7 +5644,7 @@ void DrawMatterTab() {
 				bool ok = (player._level_cost(id, player.upgrade[id].level) <= player.pre_alpha.score);
 				player._try_upgrade(id);
 				player._try_upgrade_bulk(id);
-				if(ok && !player._get_AM(0)) init_aero();
+				if(ok && !player._get_AM(0)) init_aero(player);
 			}
 			if(player._get_AM(5)) {
 				ImGui::SameLine();
@@ -4735,7 +5669,7 @@ void DrawMatterTab() {
 				bool ok = (player._level_cost(id, player.upgrade[id].level) <= player.alpha.score);
 				player._try_upgrade_bulk(id);
 				player._try_upgrade(id);
-				if(ok) init_alpha_aero();
+				if(ok) init_alpha_aero(player);
 			}
 		}
 	}
@@ -4746,8 +5680,8 @@ void DrawMatterTab() {
 static std::string get_timestamp();
 static std::string get_save_string();
 static void load_game_state_from_string(const std::string& data);
-void save_game_state();
-void load_game_state(const string& filename);
+void save_game_state(player_& player);
+void load_game_state(const string& filename, player_& player);
 static std::string paste_from_clipboard();
 #ifdef _WIN32
 static void copy_to_clipboard(const std::string& text);
@@ -4755,7 +5689,7 @@ static void copy_to_clipboard(const std::string& text);
 
 int optionstab = 1;
 //Options tab.
-void DrawOptionsTab() {
+void DrawOptionsTab(player_& player) {
 	ImGui::SetNextWindowPos(ImVec2(0, 42));
 	ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y - 42));
 	ImGui::Begin("##Options", nullptr,
@@ -4789,15 +5723,15 @@ void DrawOptionsTab() {
 		static float sec_amount = 60.0f;
 		sec_amount = (float)player.options[1].val._to_long_double();
 		if (ImGui::DragFloat("##sec", &sec_amount, 1.0f, 0.0f, 3600.0f, "%.1f s"))
-			player.options[1].val = _to_Number((long double)sec_amount);
+			player.options[1].val = (long double)sec_amount;
 
 		ImGui::RadioButton("Percent", &flux_mode, 1);
 		ImGui::SameLine();
 		static float pct_amount = 10.0f;
 		pct_amount = (float)player.options[2].val._to_long_double();
 		if (ImGui::DragFloat("##pct", &pct_amount, 1.0f, 0.0f, 100.0f, "%.1f %%"))
-			player.options[2].val = _to_Number((long double)pct_amount);
-		player.options[0].val = _to_Number(flux_mode);
+			player.options[2].val = (long double)pct_amount;
+		player.options[0].val = flux_mode;
 
 		if (ImGui::Button("Activate (Shift+Enter)", ImVec2(240, 0))) {
 			long double amt = (flux_mode == 0) ? sec_amount
@@ -4805,7 +5739,7 @@ void DrawOptionsTab() {
 			if (amt > player.time_flux) amt = player.time_flux;
 			if (amt > 0) {
 				player.time_flux -= amt;
-				flux_pool = _to_Number(amt);
+				flux_pool = amt;
 				flux_elapsed = 0;
 			}
 		}
@@ -4834,12 +5768,12 @@ void DrawOptionsTab() {
 		}
 		for (auto& s : name_store) name_ptrs.push_back(s.c_str());
 		if (ImGui::Combo("Song", &song_index, name_ptrs.data(), (int)name_ptrs.size()))
-			player.options[4].val = _to_Number(song_index);
+			player.options[4].val = song_index;
 
 		static float volume = 50.0f;
 		volume = (float)player.options[5].val._to_long_double();
 		if (ImGui::SliderFloat("Volume", &volume, 0.0f, 100.0f, "%.0f%%"))
-			player.options[5].val = _to_Number((long double)volume);
+			player.options[5].val = (long double)volume;
 
 		// Save Management: Export / Import
 		ImGui::Separator();
@@ -4894,6 +5828,7 @@ void DrawOptionsTab() {
 		                          ImVec2(-1, 100), ImGuiInputTextFlags_AllowTabInput);
 		if (ImGui::Button("Import Save", ImVec2(200, 0))) {
 			if (import_buf[0] != '\0') {
+				init(player);
 				load_game_state_from_string(std::string(import_buf));
 				PushNotification("Imported Save",
 				                 "Save loaded into memory (disk unchanged).",
@@ -4944,7 +5879,7 @@ void DrawOptionsTab() {
 						bf.close();
 					}
 				}
-				load_game_state(target);
+				load_game_state(target, player);
 				PushNotification("Imported Save",
 				                 "Loaded from " + target + "\nBackup: " + backup,
 				                 ImVec4(0.55f, 0.85f, 1.0f, 1.0f));
@@ -5018,7 +5953,7 @@ void DrawOptionsTab() {
 }
 
 //Prestige tab.
-void DrawPrestigeTab() {
+void DrawPrestigeTab(player_& player) {
 	ImGui::SetNextWindowPos(ImVec2(0, 42));
 	ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y - 42));
 	ImGui::Begin("##Prestige", nullptr,
@@ -5041,7 +5976,7 @@ void DrawPrestigeTab() {
 		if(player.pre_alpha.score >= TEN.pow(TEN.pow(TEN))) s = "^^";
 		if(player.pre_alpha.score >= TEN.pow(TEN.pow(TEN.pow(TEN)))) s = "^^^";
 		ImGui::SameLine();
-		ImGui::TextColored(ImVec4(0.8f, 0.4f, 0.0f, 1.0f),
+		ImGui::TextColored(_get_BD_color(),
 		                   "Your Matters are decaying. Matter: %s%s/s.", s.c_str(), N2S(player._get_BD_effect(player.pre_alpha.score, ONE)).c_str());
 		if(player.upgrade[34].level.is_one()) {
 			s = "x";
@@ -5049,7 +5984,7 @@ void DrawPrestigeTab() {
 			if(player.alpha.score >= TEN.pow(TEN.pow(TEN))) s = "^^";
 			if(player.alpha.score >= TEN.pow(TEN.pow(TEN.pow(TEN)))) s = "^^^";
 			ImGui::SameLine();
-			ImGui::TextColored(ImVec4(0.8f, 0.4f, 0.0f, 1.0f),
+			ImGui::TextColored(_get_BD_color(),
 			                   " Am: %s%s/s.", s.c_str(), N2S(player._get_BD_effect(player.alpha.score, ONE)).c_str());
 		}
 		s = "x";
@@ -5071,7 +6006,7 @@ void DrawPrestigeTab() {
 		"(PU1) Unlock Aeromagnifiers",
 		"(PU2) Give a mult. to M/s before Int. effect",
 		"(PU3) Reduce PIM by 10% GIM reduction",
-		"(PU4) Start with 10000 matter"
+		"(PU4) Start with 10000 matter and strengthen Amp. Aeros and Int. Aeros."
 	};
 	const char* pu_cost[4] = { "1e16", "1e30", "1e50", "1e100" };
 	for (int i = 0; i < 4; ++i) {
@@ -5117,7 +6052,7 @@ void DrawPrestigeTab() {
 			            N2S(player._get_GIM(player.pre_alpha.score)).c_str(),
 			            s1.c_str());
 			ImGui::SameLine();
-			if(ImGui::Button(("Prestige"))) init_prestige();
+			if(ImGui::Button(("Prestige"))) init_prestige(player);
 		}
 	} else {
 		if(player.upgrade[2].level.is_zero()) ImGui::Text("Obtain at least an A3 to unlock Prestige.");
@@ -5134,7 +6069,7 @@ void DrawPrestigeTab() {
 			            N2S(player._get_GIM(player.pre_alpha.score)).c_str(),
 			            s1.c_str());
 			ImGui::SameLine();
-			if(ImGui::Button(("Prestige"))) init_prestige();
+			if(ImGui::Button(("Prestige"))) init_prestige(player);
 		}
 	}
 
@@ -5148,7 +6083,7 @@ void DrawPrestigeTab() {
 		            N2S(player._get_alpha()).c_str());
 		if(player.pre_alpha.score >= inf) {
 			ImGui::SameLine();
-			if(ImGui::Button(("Alpha"))) init_alpha();
+			if(ImGui::Button(("Alpha"))) init_alpha(player);
 		}
 	}
 
@@ -5162,7 +6097,7 @@ void DrawPrestigeTab() {
 		            N2S(player._get_beta()).c_str());
 		if(player.alpha.score >= inf) {
 			ImGui::SameLine();
-			if(ImGui::Button(("Beta"))) init_beta();
+			if(ImGui::Button(("Beta"))) init_beta(player);
 		}
 	}
 
@@ -5170,9 +6105,353 @@ void DrawPrestigeTab() {
 	ImGui::End();
 }
 
+// --------------------------------------------------------------------
+// sim_safe_px(): clamp any (possibly huge / NaN / inf) coordinate coming
+// from the big-number type into a finite pixel value.
+// A single non-finite vertex would otherwise poison the whole ImDrawList
+// batch and make the entire board (frame included) disappear.
+// --------------------------------------------------------------------
+static float sim_safe_px(long double v, float lo, float hi) {
+	if (!std::isfinite((double)v)) return lo;
+	double d = (double)v;
+	if (d < (double)lo) return lo;
+	if (d > (double)hi) return hi;
+	return (float)d;
+}
+
+void DrawAlphaSimulator(player_& player) {
+	simulator_& sim = player.alpha.simulator;
+// ---- Effect members driven by SL / Achievements (set every frame). ----
+// These are read back by _get_val / _get_gravity / _get_init_speed.
+//   Global level bonus  = SL level  (+5 if Ach.47 unlocked). Shown in "Base(+bonus)".
+//   Drop value multiplier = x1.10 when Ach.44 is unlocked.
+	{
+		Number _gb = sim.level;
+		if (player._get_ach(47)) _gb = _gb + Number(5);
+		sim.global_level_bonus = _gb;
+		sim.drop_value_mult = player._get_ach(42) ? Number(1.1) : ONE; // Ach.44: +10% Drop value
+	}
+// ---- Part 0: header line (full width) ----
+	ImGui::Text("You have %s Simulation Points (SP) and you're at %s Simulation Level (SL).",
+	            N2S(sim.score).c_str(),
+	            N2S(sim.level).c_str());
+    ImGui::Text("They translated to a x%s to AP, a x%s to SP, and a x%s to Am generation.",
+				N2S(player._get_SP_effect(1)).c_str(),
+				N2S(player._get_SP_effect(3)).c_str(),
+	            N2S(player._get_SP_effect(2)).c_str());
+	ImGui::Separator();
+// ---- SL progress bar (full width, sits ABOVE the board) ----
+	Number cost     = sim._get_cost();
+	float  progress = 0.0f;
+	if (cost > ZERO) {
+		long double pr = (sim.accumulate / cost)._to_long_double();
+		if (!std::isfinite((double)pr)) pr = 0.0L;
+		if (pr < 0) pr = 0;
+		if (pr > 1) pr = 1;
+		progress = (float)pr;
+	}
+	ImGui::ProgressBar(progress, ImVec2(-1, 0),
+	                   (std::string("SL ") + N2S(sim.level) + " -> " + N2S(sim.level + ONE) + " : "
+	                     + N2S(sim.accumulate) + " / " + N2S(cost) + " SP").c_str());
+	// ---- Split the rest into LEFT (board) and RIGHT (upgrades). ----
+	const float CARD_H   = 200.0f;   // one tier card
+	ImVec2 avail = ImGui::GetContentRegionAvail();
+	float total_h = avail.y;
+	if (total_h < 240.0f) total_h = 240.0f;
+	float col_gap = 12.0f;
+	float left_w  = (avail.x - col_gap) * 0.60f;
+	if (left_w  < 300.0f) left_w  = 300.0f;
+	float right_w = (avail.x - col_gap) * 0.40f;
+	if (right_w < 340.0f) right_w = 340.0f;
+	// ============================ LEFT: the board ============================
+	ImGui::BeginChild("##boardArea", ImVec2(left_w, total_h), true);
+	{
+		ImVec2 a1 = ImGui::GetContentRegionAvail();
+		
+		float bw = a1.x;
+		if (bw  < 120.0f) bw  = 120.0f;
+
+		float bh = a1.y;
+		if (bh  < 160.0f) bh  = 160.0f;
+		// Recycle the whole drop pool whenever the board pixel size changes (window
+		// resize / layout shift) so every sprite re-seeds to the new extent.
+		{
+			int _bpw = (int)bw, _bph = (int)bh;
+			if (_bpw != sim.board_w_px || _bph != sim.board_h_px) {
+				sim.board_w_px = _bpw; sim.board_h_px = _bph; sim.drop_pool_dirty = true;
+			}
+		}
+
+		ImGui::Dummy(ImVec2(bw, bh));
+		const double VW = 800.0, VH = 800.0;
+
+		ImDrawList* dl = ImGui::GetForegroundDrawList();
+
+		ImVec2 cur = ImGui::GetCursorScreenPos();
+		// (Dummy already advanced the cursor; recompute top-left from window origin.)
+
+		cur = ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y - bh);
+
+		dl->AddRectFilled(cur, ImVec2(cur.x + bw, cur.y + bh),
+		                  ImColor(0.08f, 0.08f, 0.12f, 1.0f));
+		dl->AddRect(cur, ImVec2(cur.x + bw, cur.y + bh),
+		            ImColor(0.30f, 0.45f, 0.85f, 1.0f));
+		// Guaranteed ball seed safety net (board never blank if update() skipped a frame).
+		{
+			int na = 0;
+			for (int i = 0; i < 10; i++) {
+				long double v = sim.ball[i].value._to_long_double();
+				if (std::isfinite((double)v) && v > 0.0L) na++;
+			}
+			if (na == 0) {
+				for (int i = 0; i < 10; i++) {
+					sim.ball[i].value = Number(10) * Number(2).pow(sim.level);
+					sim.ball[i].spawn = sim.ball[i].value;
+					sim.ball[i].x = Number((double)(30 + rand() % 740));
+					sim.ball[i].y = Number((double)(30 + rand() % 740));
+				}
+			}
+		}
+		float sx = bw / (float)VW, sy = bh / (float)VH;
+
+		float sc = (sx < sy) ? sx : sy;
+		if (sc <= 0.0f) sc = 1.0f;
+
+		if (sx <= 0.0f) sx = sc;
+		if (sy <= 0.0f) sy = sc;
+
+		float ox = cur.x, oy = cur.y;
+		// Balls (fill whole left rect, per-axis scale, round via sc).
+		int    N_BALLS   = 10;               // balls kept alive on the board
+		if(sim._get_ach(45)) N_BALLS = 25;
+		if(sim._get_ach(49)) N_BALLS = 50;
+
+		float ball_r = 30.0f * sc;
+		if (ball_r < 1.0f) ball_r = 1.0f;
+
+		for (int i = 0; i < N_BALLS; i++) {
+			long double vchk = sim.ball[i].value._to_long_double();
+			if (!(std::isfinite((double)vchk) && vchk > 0.0L)) continue;
+			long double bx = sim.ball[i].x._to_long_double();
+			long double by = sim.ball[i].y._to_long_double();
+			if (!std::isfinite((double)bx) || !std::isfinite((double)by)) continue;
+			
+			long double bx_ratio = 1.0L;
+			if (sim.ball[i].spawn > ZERO) bx_ratio = (sim.ball[i].value / sim.ball[i].spawn)._to_long_double();
+
+			if (!std::isfinite((double)bx_ratio)) bx_ratio = 1.0L;
+
+			if (bx_ratio < 0) bx_ratio = 0;
+			if (bx_ratio > 1) bx_ratio = 1;
+
+			float br, bg, bb;
+
+			ImGui::ColorConvertHSVtoRGB((float)(80.0 / 359.0 * bx_ratio), 240.0f / 255.0f, 160.0f / 255.0f, br, bg, bb);
+			float px = ox + (float)bx * sx;
+			float py = oy + (float)by * sy;
+			if (px < cur.x - 64.0f || px > cur.x + bw + 64.0f) continue;
+			if (py < cur.y - 64.0f || py > cur.y + bh + 64.0f) continue;
+			dl->AddCircleFilled(ImVec2(px, py), ball_r, ImColor(br, bg, bb, 1.0f));
+			{
+				std::string val_str = sim.ball[i].value._to_String_short();
+				bool pf = (g_font_small != nullptr);
+				if (pf) ImGui::PushFont(g_font_small);
+				ImVec2 ts = ImGui::CalcTextSize(val_str.c_str());
+				dl->AddText(ImVec2(px - ts.x * 0.5f, py - ts.y * 0.5f), ImColor(1.0f, 1.0f, 1.0f, 1.0f), val_str.c_str());
+				if (pf) ImGui::PopFont();
+			}
+		}
+		// Drops: one dot per live sprite.
+		static int DROP_HUE[10] = {122,  70,  43,  24,  10, 214, 189, 173, 147, 136};
+		static int DROP_SAT[10] = {188, 183, 198, 198, 198, 198, 198, 198, 198, 198};
+		static int DROP_LUM[10] = {240, 200, 200, 200, 200, 200, 200, 200, 200, 200};
+		
+		float drop_r = 10.0f * sc;
+		if (drop_r < 1.0f) drop_r = 1.0f;
+
+		for (int i = 0; i < simulator_::MAX_DROPS; i++) {
+			if (sim.dtier[i] <= 0) continue;
+			float px = ox + sim_safe_px(sim.dx[i], 0.0f, (float)VW) * sx;
+			float py = oy + sim_safe_px(sim.dy[i], 0.0f, (float)VH) * sy;
+			if (px < cur.x - 32.0f || px > cur.x + bw + 32.0f) continue;
+			if (py < cur.y - 32.0f || py > cur.y + bh + 32.0f) continue;
+
+			int   ti = sim.dtier[i];
+			int   g  = (ti - 1) / 10;
+			if (g < 0) g = 0;
+			if (g > 9) g = 9;
+			int   rem = ti - 1 - g * 10;
+			float h   = DROP_HUE[g] / 240.0f;
+			float s   = DROP_SAT[g] / 255.0f;
+			float v   = (1.0f - 0.08f * rem) * DROP_LUM[g] / 240.0f;
+			float dr, dg, db;
+			ImGui::ColorConvertHSVtoRGB(h, s, v, dr, dg, db);
+			
+			float dalpha = sim._is_fast_drop(ti) ? 0.35f : 1.0f;   // ghost drops rendered semi-transparent
+			dl->AddCircleFilled(ImVec2(px, py), drop_r, ImColor(dr, dg, db, dalpha));
+		}
+	}
+	ImGui::EndChild();
+	ImGui::SameLine();
+	// ======================= RIGHT: the upgrades panel =======================
+	ImGui::BeginChild("##upgradeArea", ImVec2(right_w, total_h), true);
+	// ---- Top of the panel: the SL upgrade button ----
+	{
+		Number _sl_cost = sim._get_cost();
+		bool _sl_ready = !(sim.accumulate < _sl_cost);
+		ImGui::BeginDisabled(!_sl_ready);
+		std::string _sl_btn = _sl_ready
+		                      ? std::string("Upgrade SL  READY  [") + N2S(_sl_cost) + " Accumulated SP]"
+		                      : std::string("Upgrade SL [Cost: ") + N2S(_sl_cost) + " Accumulated SP]";
+		if (AlphaButton((_sl_btn + "##upgradeSL").c_str())) sim._try_upgrade();
+		ImGui::EndDisabled();
+		ImGui::Separator();
+	}
+    // Buy One / Buy Max toggle + current tier info.
+	static bool bulk = false;
+	if (AlphaButton(bulk ? "Mode: Buy Max" : "Mode: Buy One")) bulk = !bulk;
+	ImGui::SameLine();
+	int curTier = 1;
+	for (int tt = 99; tt >= 1; tt--) {
+		if (sim.drops[tt] > ZERO) {
+			curTier = tt;
+			break;
+		}
+	}
+	ImGui::Text("Tier %d Drops: %s", curTier, N2S(sim.drops[curTier]).c_str());
+	// ---- Tier upgrade list (2 cards per row, each upgrade on its OWN line) ----
+	int hi = curTier + 1;
+	if (hi > 99) hi = 99;
+	int lo = hi - 5;
+	if (lo < 1)   lo = 1;
+	// Window sized to about TWO tier rows tall, rest scrolls.
+	float tier_win_h = CARD_H * 2.0f + 24.0f;
+	ImGui::BeginChild("##tier", ImVec2(-1, tier_win_h), true);
+	// Preview helpers fold in the global bonus + Ach.44 multiplier so the
+	// displayed "-> next" figures match the real _get_* result after buying.
+	auto pv_val = [&](int t) -> Number {
+		Number e = sim.level_global[0][0].level + sim.level_global[1][0].level + sim.global_level_bonus;
+		Number a = Number(20).pow(t - 1) * (ONE + 0.05 * (sim.level_drops[t][0].level + ONE)) * Number(1.05).pow(e) * sim.drop_value_mult;
+		if(sim._get_ach(42)) a = a * 1.5;
+		if(sim._get_ach(50)) a = a * (sim.level + ONE);   // Ach.50: Drop value x (SL+1)
+		return a;
+	};
+	auto pv_grav = [&](int t) -> Number {
+		Number e = sim.level_global[0][1].level + sim.level_global[1][1].level + sim.global_level_bonus;
+		Number a = (ONE + Number(0.05) * (sim.level_drops[t][1].level + ONE)) * Number(1.05).pow(e);
+		if(sim._get_ach(44)) a = a * ((25 + sim.level).pow(0.5) - 4);
+		if(sim._get_ach(46)) a = a * 2;
+		return a;
+	};
+	auto pv_spd = [&](int t) -> Number {
+		Number e = sim.level_global[0][1].level + sim.level_global[1][1].level + sim.global_level_bonus;
+		Number a = (ONE + Number(0.05) * (sim.level_drops[t][2].level + ONE)) * Number(1.05).pow(e);
+		if(sim._get_ach(42)) a = a * 1.5;
+		return a;
+	};
+	for (int t = lo; t <= hi; t++) {
+		ImGui::BeginChild(("##tier" + std::to_string(t)).c_str(), ImVec2(-1, CARD_H), true);
+		ImGui::Text("Tier %d : %s", t, N2S(sim.drops[t]).c_str());
+		// ---- Drop preview sprite (drawn on the RIGHT of this tier card) ----
+		{
+			ImDrawList* tdl = ImGui::GetWindowDrawList();
+			ImVec2 wpos = ImGui::GetWindowPos();
+			ImVec2 wsz  = ImGui::GetWindowSize();
+			static int PREVIEW_HUE[10] = {122, 70, 43, 24, 10, 214, 189, 173, 147, 136};
+			static int PREVIEW_SAT[10] = {188, 183, 198, 198, 198, 198, 198, 198, 198, 198};
+			static int PREVIEW_LUM[10] = {240, 200, 200, 200, 200, 200, 200, 200, 200, 200};
+			int pg = (t - 1) / 10; if (pg < 0) pg = 0; if (pg > 9) pg = 9;
+			int rem = (t - 1) - pg * 10;
+			float pvr, pvg, pvb;
+			float h   = PREVIEW_HUE[pg] / 240.0f;
+			float s   = PREVIEW_SAT[pg] / 255.0f;
+			float v   = (1.0f - 0.08f * rem) * PREVIEW_LUM[pg] / 240.0f;
+			ImGui::ColorConvertHSVtoRGB(h, s, v, pvr, pvg, pvb);
+			float prev_r = 18.0f;
+			ImVec2 pc(wpos.x + wsz.x - prev_r - 14.0f, wpos.y + prev_r + 12.0f);
+			tdl->AddCircleFilled(pc, prev_r, ImColor(pvr, pvg, pvb, 1.0f));
+			tdl->AddCircle(pc, prev_r, ImColor(1.0f, 1.0f, 1.0f, 0.7f), 0, 1.5f);
+			std::string pl = std::string("T") + std::to_string(t);
+			ImVec2 pls = ImGui::CalcTextSize(pl.c_str());
+			tdl->AddText(ImVec2(pc.x - pls.x * 0.5f, pc.y - pls.y * 0.5f), ImColor(0.0f, 0.0f, 0.0f, 1.0f), pl.c_str());
+		}
+		const char* labels[3] = { "Value", "Gravity", "Init. speed" };
+		Number curv[3];
+		curv[0] = sim._get_val(t);
+		curv[1] = sim._get_gravity(t);
+		curv[2] = sim._get_init_speed(t);
+		for (int k = 0; k < 3; k++) {
+			Number up = (k == 0) ? pv_val(t) : (k == 1 ? pv_grav(t) : pv_spd(t));
+			Number cost_k = sim._get_cost(t, k);
+			ImGui::Text("%s: %s -> %s", labels[k], N2S(curv[k]).c_str(), N2S(up).c_str());
+			string btn = std::string("[Cost: ") + N2S(cost_k) + "]";
+			if (AlphaButton((btn + "##" + std::to_string(t) + "-" + std::to_string(k)).c_str())) {
+				if (bulk) sim._try_upgrade_bulk(t, k);
+				else      sim._try_upgrade(t, k);
+			}
+		}
+        // "Add a Tier N drop".
+		Number add_cost = sim._get_cost(t, 3);
+		string add_btn;
+		if (t == 1) add_btn = (sim.drops[1] <= ZERO)
+			                      ? "Add a Tier 1 drop. [FREE - first one]"
+			                      : "Add a Tier 1 drop. [Cost: " + N2S(add_cost) + "]";
+		else        add_btn = "10 Tier " + std::to_string(t - 1) + " -> 1 Tier " + std::to_string(t) + " [Cost: " + N2S(add_cost) + "]";
+		
+		bool add_locked = (t != 1 && sim.level < 50);
+		if (add_locked) ImGui::Text("(unlocked after SM 8: SL >= 20)");
+		else if (AlphaButton((add_btn + "##" + std::to_string(t) + "-").c_str())) {
+			if (bulk) sim._try_upgrade_bulk(t, 3);
+			else      sim._try_upgrade(t, 3);
+		}
+		// ---- Synthesize button (added BELOW the buy button) ----
+		// 10 Tier t -> 1 Tier (t+1). Unrestricted: no SM8 gate, no SP cost.
+		string syn_btn = std::string("10 Tier ") + std::to_string(t) + " -> 1 Tier " + std::to_string(t + 1) + " [Merge x10]";
+		bool can_syn = sim_has_ten(sim.drops[t]);
+		if (!can_syn) ImGui::BeginDisabled(true);
+		if (AlphaButton((syn_btn + "##syn" + std::to_string(t) + "-").c_str())) {
+			if (bulk) sim._try_synthesize_bulk(t);
+			else      sim._try_synthesize(t);
+		}
+		if (!can_syn) ImGui::EndDisabled();
+		ImGui::EndChild();
+	}
+	ImGui::EndChild();
+	ImGui::Separator();
+	// ---- Global upgrades: BOTH cards shown, one per row (two rows). ----
+	// Each Global level shows "Base(+bonus)" where bonus = SL(+Ach.47).
+	const char* glob_names[2] = { "Global (Am)", "Global (AP)" };
+	const char* glob_res[2]   = { "Am", "AP" };
+	std::string _gb_str = N2S(sim.global_level_bonus);
+	for (int g = 0; g < 2; g++) {
+		ImGui::BeginChild(("##glob" + std::to_string(g)).c_str(), ImVec2(-1, 96.0f), true);
+		ImGui::Text("%s", glob_names[g]);
+		{
+			Number* _gr = (g == 0) ? sim.am_ref : sim.ap_ref;
+			std::string _hv = _gr ? N2S(*_gr) : std::string("--");
+			ImGui::SameLine();
+			ImGui::Text("Have: %s %s", _hv.c_str(), glob_res[g]);
+		}
+		
+		int gid = -(g + 1);
+
+		for (int k = 0; k < 2; k++) {
+			Number cost_k = sim._get_cost(gid, k);
+			ImGui::Text("%s Level: %s(+%s)", (k == 0 ? "Value" : "Gravity"),
+			            N2S(sim.level_global[g][k].level).c_str(), _gb_str.c_str());
+			string btn = std::string("Buy [Cost: ") + N2S(cost_k) + " " + glob_res[g] + "]";
+			if (AlphaButton((btn + "##global" + std::to_string(g) + "-" + std::to_string(k)).c_str())) {
+				if (bulk) sim._try_upgrade_bulk(gid, k);
+				else      sim._try_upgrade(gid, k);
+			}
+		}
+		ImGui::EndChild();
+	}
+	ImGui::EndChild();
+}
 
 // Alpha tab.
-void DrawAlphaTab() {
+void DrawAlphaTab(player_& player) {
 	ImGui::SetNextWindowPos(ImVec2(0, 42));
 	ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y - 42));
 	ImGui::Begin("##Alpha", nullptr,
@@ -5203,7 +6482,7 @@ void DrawAlphaTab() {
 			if(player.alpha.score >= TEN.pow(TEN.pow(TEN))) s = "^^";
 			if(player.alpha.score >= TEN.pow(TEN.pow(TEN.pow(TEN)))) s = "^^^";
 			ImGui::SameLine();
-			ImGui::TextColored(ImVec4(0.8f, 0.4f, 0.0f, 1.0f),
+			ImGui::TextColored(_get_BD_color(),
 			                   " Am: %s%s/s.", s.c_str(), N2S(player._get_BD_effect(player.alpha.score, ONE)).c_str());
 		}
 		s = "x";
@@ -5226,7 +6505,11 @@ void DrawAlphaTab() {
 	ImGui::SameLine();
 	if(AlphaButton(("Break Alpha Upgrades"))) player.alpha.tab = 2;
 	ImGui::SameLine();
-	if(AlphaButton(("Alpha Milestone"))) player.alpha.tab = 3;
+	if(player.alpha.unlocked_simulator) {
+		if(AlphaButton(("Alpha Simulator"))) player.alpha.tab = 3;
+		ImGui::SameLine();
+	}
+	if(AlphaButton(("Alpha Milestone"))) player.alpha.tab = 4;
 
 	// Alpha Upgrades tab.
 	if(player.alpha.tab == 1) {
@@ -5236,7 +6519,7 @@ void DrawAlphaTab() {
 		ImGui::Text("Respec AUP Upgrades(which also performs an Alpha reset) to redistribute them.");
 		ImGui::SameLine();
 		if(AlphaButton("Respec")) {
-			respec_alpha();
+			respec_alpha(player);
 			for(int i = 22; i < 26; i ++) player.upgrade[i].level = ZERO;
 		}
 		for (int i = 0; i < 4; ++i) {
@@ -5298,7 +6581,7 @@ void DrawAlphaTab() {
 				            N2S(player._get_GIM(player.pre_alpha.score)).c_str(),
 				            s1.c_str());
 				ImGui::SameLine();
-				if(ImGui::Button(("Prestige"))) init_prestige();
+				if(ImGui::Button(("Prestige"))) init_prestige(player);
 			}
 		} else {
 			if(player.upgrade[2].level.is_zero()) ImGui::Text("Obtain at least an A3 to unlock Prestige.");
@@ -5315,7 +6598,7 @@ void DrawAlphaTab() {
 				            N2S(player._get_GIM(player.pre_alpha.score)).c_str(),
 				            s1.c_str());
 				ImGui::SameLine();
-				if(ImGui::Button(("Prestige"))) init_prestige();
+				if(ImGui::Button(("Prestige"))) init_prestige(player);
 			}
 		}
 
@@ -5328,7 +6611,7 @@ void DrawAlphaTab() {
 			            N2S(player._get_alpha()).c_str());
 			ImGui::SameLine();
 			if(player.pre_alpha.score >= inf) {
-				if(ImGui::Button(("Alpha"))) init_alpha();
+				if(ImGui::Button(("Alpha"))) init_alpha(player);
 			}
 		}
 	}
@@ -5355,8 +6638,8 @@ void DrawAlphaTab() {
 					Number log_s = s.log(TEN);
 					if (log_s > ZERO) {
 						Number x = player.upgrade[32].level;
-						Number exponent = _to_Number(0.75) - _to_Number(0.75) / _to_Number(1.1).pow(x);
-						if (exponent > _to_Number(0.75)) exponent = _to_Number(0.75);
+						Number exponent = 0.75 - 0.75 / Number(1.1).pow(x);
+						if (exponent > 0.75) exponent = 0.75;
 						mul = log_s.pow(exponent);
 					}
 				}
@@ -5365,7 +6648,7 @@ void DrawAlphaTab() {
 				// BAU4
 				Number rate = ZERO;
 				if (player.upgrade[33].level > ZERO && player.fastest_ap_per_min > ZERO) {
-					rate = player.fastest_ap_per_min * player.upgrade[33].level * _to_Number(0.01);
+					rate = player.fastest_ap_per_min * player.upgrade[33].level * 0.01;
 				}
 				effect = "Currently: " + N2S(rate) + " AP/min";
 			} else if (i == 4) {
@@ -5420,17 +6703,33 @@ void DrawAlphaTab() {
 		}
 		ImGui::EndChild();
 	}
-	// Alpha Milestone tab.
+	// Alpha Simulator tab.
+	// In replacement to Ach.40-48 rewards.
 	if(player.alpha.tab == 3) {
 		ImGui::Text("You have %s AP and %s Alpha.",
 		            N2S(player.alpha.point).c_str(),
 		            N2S(player.alpha.alpha).c_str());
-		ImGui::BeginChild("##am", ImVec2(-1, 700), true);
-		ImGui::Text("You have %s Alpha.",
+		ImGui::Separator();
+		ImGui::BeginChild("##as", ImVec2(-1, -1), true);
+		DrawAlphaSimulator(player);
+		ImGui::EndChild();
+	}
+	// Alpha Milestone tab.
+	if(player.alpha.tab == 4) {
+		ImGui::Text("You have %s AP and %s Alpha.",
+		            N2S(player.alpha.point).c_str(),
 		            N2S(player.alpha.alpha).c_str());
+		ImGui::BeginChild("##am", ImVec2(-1, 700), true);
+		ImGui::Text("You have %s Alpha. ",
+		            N2S(player.alpha.alpha).c_str());
+		if(player.alpha.unlocked_simulator) {
+			ImGui::SameLine();
+			ImGui::Text("You are at %s Simulation level.",
+			            N2S(player.alpha.simulator.level).c_str());
+		}
 		for(int i = 0; i < 7; i ++) {
 			ImGui::BeginChild(("##am" + to_string(i)).c_str(), ImVec2(-1, 80), true);
-			if(player.alpha.alpha < am[i]) {
+			if(!player._get_AM(i)) {
 				ImGui::Text("Alpha Milestone %s:", to_string(i + 1).c_str());
 				ImGui::Text("%s%s",N2S(am[i]).c_str(),am_name[i].c_str());
 			} else {
@@ -5445,13 +6744,132 @@ void DrawAlphaTab() {
 			}
 			ImGui::EndChild();
 		}
+		if(player.alpha.unlocked_simulator) {
+			for(int i = 0; i < 8; i ++) {
+				ImGui::BeginChild(("##sm" + to_string(i)).c_str(), ImVec2(-1, 80), true);
+				if(!player._get_SM(i)) {
+					ImGui::Text("Simulation Milestone %s:", to_string(i + 1).c_str());
+					ImGui::Text("%s%s",N2S(sm[i]).c_str(),sm_name[i].c_str());
+				} else {
+					ImGui::TextColored(ImVec4(0.3f,1,0.3f,1),"Simulation Milestone %s:", to_string(i + 1).c_str());
+					ImGui::TextColored(ImVec4(0.3f,1,0.3f,1),"%s%s",N2S(sm[i]).c_str(),sm_name[i].c_str());
+				}
+				ImGui::EndChild();
+			}
+		}
 		ImGui::EndChild();
 	}
 	ImGui::End();
 }
 
+static const int BD_WEIGHT_COUNT = 4;
+
+static float bd_clamp_weight(const float w[BD_WEIGHT_COUNT], int idx, float new_val) {
+	if (new_val < -1.0f) new_val = -1.0f;
+	if (new_val >  1.0f) new_val =  1.0f;
+
+	float others = 0.0f;
+	for (int k = 0; k < BD_WEIGHT_COUNT; ++k) {
+		if (k != idx) others += w[k];
+	}
+
+	// new_val + others >= -BE.
+	if (new_val + others < -1 * player._get_BE()) {
+		new_val = player._get_BE() - others;
+	}
+	if (new_val < -1.0f) new_val = -1.0f;
+	if (new_val >  1.0f) new_val =  1.0f;
+
+	return new_val;
+}
+
+void DrawBetaDecayWeights(player_& player) {
+	if (player.upgrade[76].level.is_zero()) return;
+
+	ImGui::BeginChild("##bd_weights", ImVec2(-1, 0), true);
+
+	ImGui::Text("Beta Decay Weights");
+	ImGui::TextDisabled("Range [-1, 1]; sum of all four is >= %.2f. Less is better.", -1 * player._get_BE());
+	ImGui::Separator();
+
+	// Read from local save.
+	float w[BD_WEIGHT_COUNT];
+	for (int i = 0; i < BD_WEIGHT_COUNT; ++i) {
+		w[i] = (float)player.beta.weights[i]._to_long_double();
+		if (w[i] < -1.0f) w[i] = -1.0f;
+		if (w[i] >  1.0f) w[i] =  1.0f;
+	}
+
+	const char* labels[BD_WEIGHT_COUNT] = {
+		"Step 1 (x)",
+		"Step 2 (^)",
+		"Step 3 (^^)",
+		"Step 4 (^^^)"
+	};
+
+	// Button + Slider
+	for (int i = 0; i < BD_WEIGHT_COUNT; ++i) {
+		ImGui::PushID(i);
+
+		// - Button
+		if (ImGui::Button("-##bdw_minus", ImVec2(24, 0))) {
+			float nv = w[i] - 0.01f;
+			// Calculation to prevent accidental violation.
+			float others = 0.0f;
+			for (int k = 0; k < BD_WEIGHT_COUNT; ++k) if (k != i) others += w[k];
+			if (others + nv < -1 * player._get_BE()) nv = -1 * player._get_BE() - others;
+			if (nv < -1.0f) nv = -1.0f;
+			w[i] = nv;
+		}
+
+		ImGui::SameLine();
+
+		// Slider
+		ImGui::SetNextItemWidth(320.0f);
+		float tmp = w[i];
+		if (ImGui::SliderFloat(("##bdw_slider" + std::to_string(i)).c_str(),
+		                       &tmp, -1.0f, 1.0f, "%.2f")) {
+			w[i] = bd_clamp_weight(w, i, tmp);
+		}
+
+		ImGui::SameLine();
+
+		// + Button
+		if (ImGui::Button("+##bdw_plus", ImVec2(24, 0))) {
+			float nv = w[i] + 0.01f;
+			if (nv > 1.0f) nv = 1.0f;
+			w[i] = nv;
+		}
+
+		ImGui::SameLine();
+		ImGui::Text("%s", labels[i]);
+
+		// Write data.
+		player.beta.weights[i] = (long double)w[i];
+
+		ImGui::PopID();
+	}
+
+	ImGui::Separator();
+
+	// Reset
+	float sum = 0.0f;
+	for (int i = 0; i < BD_WEIGHT_COUNT; ++i) sum += w[i];
+
+	ImGui::Text("Sum: %.2f  (min %.2f)", sum, -1 * player._get_BE());
+
+	ImGui::SameLine();
+	if (ImGui::Button("Reset")) {
+		for (int i = 0; i < BD_WEIGHT_COUNT; ++i) {
+			player.beta.weights[i] = _ZERO;
+		}
+	}
+
+	ImGui::EndChild();
+}
+
 // Beta tab.
-void DrawBetaTab() {
+void DrawBetaTab(player_& player) {
 	ImGui::SetNextWindowPos(ImVec2(0, 42));
 	ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y - 42));
 	ImGui::Begin("##Beta", nullptr,
@@ -5517,54 +6935,89 @@ void DrawBetaTab() {
 		ImGui::Text("You have %s BP and %s Beta.",
 		            N2S(player.beta.point).c_str(),
 		            N2S(player.beta.beta).c_str());
-  		ImGui::TextColored(dark_red, "Beta Decay is applied since your 2nd Beta.");
-  		ImGui::TextColored(dark_red, "Beta Decay effect is affected by four factors: Beta Decay Number(BDN), Beta Decay Factor(BDF), Beta Decay Instability Magnitude(BDIM),\nand your matter amount.");
-  		ImGui::TextColored(dark_red, "Currently: BDN=%s, BDF=%s, BDIM=%s.\n", N2S(player._get_BDN()).c_str(), N2S(player._get_BDF()).c_str(), N2S(player._get_BDIM()).c_str());
-  		
-  		ImGui::Text("");
-  		ImGui::TextColored(dark_red, "Define a = Matter you have (Matter, Am, Bm), k = [BDN^((10-x)/9)*BDF^((x-1)/9)]^(BDIM/10).");
-  		ImGui::TextColored(dark_red, "Beta Decay is divided into four steps.");
-  		ImGui::TextColored(dark_red, "Step 1: If a <= 1e10, x = log10(a), a is multiplied by k per second.");
-  		ImGui::TextColored(dark_red, "Step 2: If 1e10 < a <= e10000000000, x = log10(log10(a)), a is empowered by k per second.");
-  		ImGui::TextColored(dark_red, "Step 3: If e10000000000 < a <= e1e10000000000, x = triple-log10(a), a is dilated by k per second.");
-  		ImGui::TextColored(dark_red, "Step 4: If e1e10000000000 < a, x = quadrable-log10(a), a is tetrated by k per second.\n");
-  		
+		ImGui::TextColored(dark_red, "Beta Decay is applied since your 2nd Beta.");
+		ImGui::TextColored(dark_red, "Beta Decay effect is affected by four factors: Beta Decay Number(BDN), Beta Decay Factor(BDF), Beta Decay Instability Magnitude(BDIM),\nand your matter amount.");
+		ImGui::TextColored(dark_red, "Currently: BDN=%s, BDF=%s, BDIM=%s.\n", N2S(player._get_BDN()).c_str(), N2S(player._get_BDF()).c_str(), N2S(player._get_BDIM()).c_str());
+
 		ImGui::Text("");
-  		string s;
-  		if(player._get_BD_step(player.pre_alpha.score) == ONE) s = "1. Matter/s is being multiplied by ";
-  		if(player._get_BD_step(player.pre_alpha.score) == _to_Number(2)) s = "2. Matter/s is being empowered by ";
-  		if(player._get_BD_step(player.pre_alpha.score) == _to_Number(3)) s = "3. Matter/s is being dilated by ";
-  		if(player._get_BD_step(player.pre_alpha.score) == _to_Number(4)) s = "4. Matter/s is being tetrated by ";
-  		ImGui::TextColored(dark_red, "You have %s matter, which is in Step %s%s. Current Matter is affected by the same way per second.",
-			 						N2S(player.pre_alpha.score).c_str(),
-									s.c_str(),
-									N2S(player._get_BD_effect(player.pre_alpha.score, ONE)).c_str());
-		
+		ImGui::TextColored(dark_red, "Define a = Matter you have (Matter, Am, Bm), k = [BDN^((10-x)/9)*BDF^((x-1)/9)]^(BDIM/10).");
+		ImGui::TextColored(dark_red, "Beta Decay is divided into four steps.");
+		ImGui::TextColored(dark_red, "Step 1: If a >= 10, x = log10(a), a is multiplied by k per second.");
+		ImGui::TextColored(dark_red, "Step 2: If a >= 1e10, x = log10(log10(a)), a is empowered by k per second.");
+		ImGui::TextColored(dark_red, "Step 3: If a >= e10000000000, x = triple-log10(a), a is dilated by k per second.");
+		ImGui::TextColored(dark_red, "Step 4: If a >= e1e10000000000, x = quadrable-log10(a), a is tetrated by k per second.\n");
+
+		ImGui::Text("");
+		string s;
+		if(player._get_BD_step(player.pre_alpha.score) == ONE) s = "1. Matter/s is being multiplied by ";
+		if(player._get_BD_step(player.pre_alpha.score) == 2) s = "2. Matter/s is being empowered by ";
+		if(player._get_BD_step(player.pre_alpha.score) == 3) s = "3. Matter/s is being dilated by ";
+		if(player._get_BD_step(player.pre_alpha.score) == 4) s = "4. Matter/s is being tetrated by ";
+		ImGui::TextColored(dark_red, "You have %s matter, which is in Step %s%s. Current Matter is affected by the same way per second.",
+		                   N2S(player.pre_alpha.score).c_str(),
+		                   s.c_str(),
+		                   N2S(player._get_BD_effect(player.pre_alpha.score, ONE)).c_str());
+
 		if(player._get_BD_step(player.alpha.score) == ONE) s = "1. Alpha Matter/s is being multiplied by ";
-  		if(player._get_BD_step(player.alpha.score) == _to_Number(2)) s = "2. Alpha Matter/s is being empowered by ";
-  		if(player._get_BD_step(player.alpha.score) == _to_Number(3)) s = "3. Alpha Matter/s is being dilated by ";
-  		if(player._get_BD_step(player.alpha.score) == _to_Number(4)) s = "4. Alpha Matter/s is being tetrated by ";
-  		ImGui::TextColored(dark_red, "You have %s Alpha matter, which is in Step %s%s. Current Alpha Matter is affected by the same way per second.",
-			 						N2S(player.alpha.score).c_str(),
-									s.c_str(),
-									N2S(player._get_BD_effect(player.alpha.score, ONE)).c_str());
-		
+		if(player._get_BD_step(player.alpha.score) == 2) s = "2. Alpha Matter/s is being empowered by ";
+		if(player._get_BD_step(player.alpha.score) == 3) s = "3. Alpha Matter/s is being dilated by ";
+		if(player._get_BD_step(player.alpha.score) == 4) s = "4. Alpha Matter/s is being tetrated by ";
+		ImGui::TextColored(dark_red, "You have %s Alpha matter, which is in Step %s%s. Current Alpha Matter is affected by the same way per second.",
+		                   N2S(player.alpha.score).c_str(),
+		                   s.c_str(),
+		                   N2S(player._get_BD_effect(player.alpha.score, ONE)).c_str());
+
 		if(player._get_BD_step(player.beta.score) == ONE) s = "1. Beta Matter/s is being multiplied by ";
-  		if(player._get_BD_step(player.beta.score) == _to_Number(2)) s = "2. Beta Matter/s is being empowered by ";
-  		if(player._get_BD_step(player.beta.score) == _to_Number(3)) s = "3. Beta Matter/s is being dilated by ";
-  		if(player._get_BD_step(player.beta.score) == _to_Number(4)) s = "4. Beta Matter/s is being tetrated by ";
-  		ImGui::TextColored(dark_red, "You have %s Beta matter, which is in Step %s%s. Current Beta Matter is affected by the same way per second.",
-			 						N2S(player.beta.score).c_str(),
-									s.c_str(),
-									N2S(player._get_BD_effect(player.beta.score, ONE)).c_str());
-		
-		
+		if(player._get_BD_step(player.beta.score) == 2) s = "2. Beta Matter/s is being empowered by ";
+		if(player._get_BD_step(player.beta.score) == 3) s = "3. Beta Matter/s is being dilated by ";
+		if(player._get_BD_step(player.beta.score) == 4) s = "4. Beta Matter/s is being tetrated by ";
+		ImGui::TextColored(dark_red, "You have %s Beta matter, which is in Step %s%s. Current Beta Matter is affected by the same way per second.",
+		                   N2S(player.beta.score).c_str(),
+		                   s.c_str(),
+		                   N2S(player._get_BD_effect(player.beta.score, ONE)).c_str());
+
+
+		if (!player.upgrade[76].level.is_zero()) {
+			ImGui::Separator();
+			DrawBetaDecayWeights(player);
+		}
 	}
 	// Beta Upgrades tab.
 	if(player.beta.tab == 2) {
 		ImGui::Text("You have %s BP and %s Beta.",
 		            N2S(player.beta.point).c_str(),
 		            N2S(player.beta.beta).c_str());
+		ImGui::BeginChild("##bu", ImVec2(-1, 700), true);
+		for(int i = 0; i < 1; i ++) {
+			ImGui::BeginChild(("##bu" + to_string(i)).c_str(), ImVec2(-1, 120), true);
+			ImGui::Text("%s", bu_names[i].c_str());
+
+			string effect;
+			if(i == 0) {
+				effect = player.upgrade[76].level.is_one()
+				         ? "Currently: Unlocked"
+				         : "Gains 1 Beta Energy.";
+			}
+
+			ImGui::Text("%s", effect.c_str());
+
+			Number cost = player._level_cost(i + 76, player.upgrade[76 + i].level);
+			ImGui::Text("Cost: %s BP", N2S(cost).c_str());
+
+			if (player.upgrade[i + 76].level.is_one()) {
+				ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Bought");
+			} else {
+				// Buy One
+				if (ImGui::Button(("Buy One##bau" + to_string(i)).c_str()))
+					player._try_upgrade(i + 76);
+				ImGui::SameLine();
+				// Buy Max
+				if (ImGui::Button(("Buy Max##bau" + to_string(i)).c_str()))
+					player._try_upgrade_bulk(i + 76);
+			}
+			ImGui::EndChild();
+		}
+		ImGui::EndChild();
 	}
 	// Beta Challenges tab.
 	if(player.beta.tab == 3) {
@@ -5574,6 +7027,24 @@ void DrawBetaTab() {
 	}
 	// Beta Milestone tab.
 	if(player.beta.tab == 5) {
+		ImGui::Text("You have %s BP and %s Beta.",
+		            N2S(player.beta.point).c_str(),
+		            N2S(player.beta.beta).c_str());
+		ImGui::BeginChild("##bm", ImVec2(-1, 700), true);
+		ImGui::Text("You have %s Beta.",
+		            N2S(player.beta.beta).c_str());
+		for(int i = 0; i < 10; i ++) {
+			ImGui::BeginChild(("##bm" + to_string(i)).c_str(), ImVec2(-1, 80), true);
+			if(player._get_BM(i)) {
+				ImGui::Text("Beta Milestone %s:", to_string(i + 1).c_str());
+				ImGui::Text("%s%s",N2S(bm[i]).c_str(),bm_name[i].c_str());
+			} else {
+				ImGui::TextColored(ImVec4(0.3f,1,0.3f,1),"Beta Milestone %s:", to_string(i + 1).c_str());
+				ImGui::TextColored(ImVec4(0.3f,1,0.3f,1),"%s%s",N2S(bm[i]).c_str(),bm_name[i].c_str());
+			}
+			ImGui::EndChild();
+		}
+		ImGui::EndChild();
 	}
 	ImGui::End();
 }
@@ -5581,7 +7052,7 @@ void DrawBetaTab() {
 int storytab = 1;
 
 // Achievement tab.
-void DrawStoryTab() {
+void DrawStoryTab(player_& player) {
 	ImGui::SetNextWindowPos(ImVec2(0, 42));
 	ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y - 42));
 	ImGui::Begin("##Story", nullptr,
@@ -5597,8 +7068,8 @@ void DrawStoryTab() {
 		ImGui::BeginChild("##ach", ImVec2(-1, 700), true);
 		ImGui::Text("Achievements give Multipliers to:");
 		ImGui::Text("Amplifiers: x%s", N2S(player._get_ach_effect(1)).c_str());
-		if(player._get_ach(44)) ImGui::Text("Alpha Intensifiers: x%s", N2S(player._get_ach_effect(1)).c_str());
-		for(int i = 1; i <= 48; i ++) {
+		if(player._get_SM(4)) ImGui::Text("Alpha Intensifiers: x%s", N2S(player._get_ach_effect(1)).c_str());
+		for(int i = 1; i <= 52; i ++) {
 			ImGui::BeginChild(("##ach" + to_string(i)).c_str(), ImVec2(300, 120), true);
 			if(player._get_ach(i)) {
 				ImGui::TextColored(ImVec4(0.3f,1,0.3f,1),"%s",ach_name[i].c_str());
@@ -5621,7 +7092,7 @@ void DrawStoryTab() {
 	if(storytab == 2) {
 		ImGui::BeginChild("##story", ImVec2(-1, 700), true);
 		ImGui::Text("You have unlocked %s stories.", N2S(player._get_story_done()).c_str());
-		for(int i = 1; i <= 5; i ++) {
+		for(int i = 1; i <= 6; i ++) {
 			ImGui::BeginChild(("##story" + to_string(i)).c_str(), ImVec2(-1, 300), true);
 			if(!player._get_story(i)) {
 				ImGui::TextColored(ImVec4(0.5,0.5,0.5,1),"Story %s", to_string(i).c_str());
@@ -5648,7 +7119,7 @@ void DrawStoryTab() {
 	ImGui::End();
 }
 
-void DrawTopBar() {
+void DrawTopBar(player_& player) {
 	ImGui::SetNextWindowPos(ImVec2(0, 0));
 	ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, 42));
 	ImGui::Begin("##TopBar", nullptr,
@@ -5676,7 +7147,7 @@ void DrawTopBar() {
 	ImGui::End();
 }
 
-void GUI_RenderFrame() {
+void GUI_RenderFrame(player_& player) {
 	// ---- 1. Message ----
 	MSG msg;
 	while (::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
@@ -5748,26 +7219,26 @@ void GUI_RenderFrame() {
 	}
 
 	if (!show_splash) {
-		DrawTopBar();
+		DrawTopBar(player);
 
 		switch (player.currenttab) {
 			case 1:
-				DrawMatterTab();
+				DrawMatterTab(player);
 				break;
 			case 2:
-				DrawOptionsTab();
+				DrawOptionsTab(player);
 				break;
 			case 3:
-				DrawStoryTab();
+				DrawStoryTab(player);
 				break;
 			case 4:
-				DrawPrestigeTab();
+				DrawPrestigeTab(player);
 				break;
 			case 5:
-				DrawAlphaTab();
+				DrawAlphaTab(player);
 				break;
 			case 6:
-				DrawBetaTab();
+				DrawBetaTab(player);
 				break;
 		}
 
@@ -5817,7 +7288,7 @@ static int debug_cnt = 0;
 bool imgui_capturing = false;
 
 //Internal tick game update.
-void update(Number s) {
+void update(player_& player, Number s) {
 #ifdef _WIN32
 	imgui_capturing = g_use_gui
 	                  && ImGui::GetCurrentContext()
@@ -5863,12 +7334,12 @@ void update(Number s) {
 		int sel = (int)player.options[0].val._to_long_double();
 		if (upNow && !prevUp) {
 			sel = (sel + 4) % 5;
-			player.options[0].val = _to_Number(sel);
+			player.options[0].val = sel;
 			editing_option = false;
 		}
 		if (downNow && !prevDown) {
 			sel = (sel + 1) % 5;
-			player.options[0].val = _to_Number(sel);
+			player.options[0].val = sel;
 			editing_option = false;
 		}
 		if (enterNow && !prevEnter && !shiftNow) {
@@ -5880,14 +7351,14 @@ void update(Number s) {
 				if (leftNow  && !prevLeftEdit)  v -= 1.0L;
 				if (rightNow && !prevRightEdit) v += 1.0L;
 				if (v < 0) v = 0;
-				player.options[1].val = _to_Number(v);
+				player.options[1].val = v;
 			} else if (sel == 1) {
 				long double v = player.options[2].val._to_long_double();
 				if (leftNow  && !prevLeftEdit)  v -= 1.0L;
 				if (rightNow && !prevRightEdit) v += 1.0L;
 				if (v < 0)   v = 0;
 				if (v > 100) v = 100;
-				player.options[2].val = _to_Number(v);
+				player.options[2].val = v;
 			} else if (sel == 2) { // Save file name
 				for (int vk = 'A'; vk <= 'Z'; ++vk) {
 					bool kd = isKeyDown(vk);
@@ -5925,14 +7396,14 @@ void update(Number s) {
 				if (rightNow && !prevRightEdit) v += 1.0L;
 				if (v < 0)   v = 0;
 				if (v > (long double)(BGM_LIST.size() - 1)) v = (long double)(BGM_LIST.size() - 1);
-				player.options[4].val = _to_Number(v);
+				player.options[4].val = v;
 			} else if(sel == 4) { //BGM Volume
 				long double v = player.options[5].val._to_long_double();
 				if (leftNow  && !prevLeftEdit)  v -= 1.0L;
 				if (rightNow && !prevRightEdit) v += 1.0L;
 				if (v < 0)   v = 0;
 				if (v > 100) v = 100;
-				player.options[5].val = _to_Number(v);
+				player.options[5].val = v;
 			}
 		}
 		bool shiftEnter = shiftNow && enterNow;
@@ -5946,7 +7417,7 @@ void update(Number s) {
 			if (pool_amount > player.time_flux) pool_amount = player.time_flux;
 			if (pool_amount > 0) {
 				player.time_flux -= pool_amount;
-				flux_pool = _to_Number(pool_amount);
+				flux_pool = pool_amount;
 				flux_elapsed = 0;
 			}
 		}
@@ -5972,12 +7443,12 @@ void update(Number s) {
 	if (pNow && !prevP && capsOn) {
 		if (player.unlocked_prestige && player.pre_alpha.score > player.pre_alpha.highest) {
 			player.pre_alpha.highest = max(player.pre_alpha.score, player.pre_alpha.highest);
-			init_prestige();
+			init_prestige(player);
 		}
 	}
 	if (aNow && !prevA && capsOn) {
 		if (player.pre_alpha.score >= inf) {
-			init_alpha();
+			init_alpha(player);
 		}
 	}
 	//A1-A8, I1-I8 upgrade.
@@ -5988,7 +7459,7 @@ void update(Number s) {
 				player._try_upgrade(i);
 				Number cur = player.pre_alpha.score;
 				player._try_upgrade_bulk(i);
-				if(cur >= _to_Number(1e100)) player.pre_alpha.score = cur;
+				if(cur >= 1e100) player.pre_alpha.score = cur;
 			}
 			Number x = player.upgrade[i].level;
 			player._try_upgrade(i);
@@ -6002,7 +7473,7 @@ void update(Number s) {
 				player._try_upgrade(i + 8);
 				Number cur = player.pre_alpha.score;
 				player._try_upgrade_bulk(i + 8);
-				if(cur >= _to_Number(1e100)) player.pre_alpha.score = cur;
+				if(cur >= 1e100) player.pre_alpha.score = cur;
 			}
 			Number x = player.upgrade[i + 8].level;
 			player._try_upgrade(i + 8);
@@ -6015,7 +7486,7 @@ void update(Number s) {
 		if (player.upgrade[i].autobuyer.enabled && player._get_AM(1)) {
 			Number cur = player.pre_alpha.score;
 			player._try_upgrade_bulk(i);
-			if(cur >= _to_Number(1e100)) player.pre_alpha.score = cur;
+			if(cur >= 1e100) player.pre_alpha.score = cur;
 			Number x = player.upgrade[i].level;
 			player._try_upgrade(i);
 			while(x != player.upgrade[i].level) {
@@ -6026,7 +7497,7 @@ void update(Number s) {
 		if (player.upgrade[i + 8].autobuyer.enabled && player._get_AM(2)) {
 			Number cur = player.pre_alpha.score;
 			player._try_upgrade_bulk(i + 8);
-			if(cur >= _to_Number(1e100)) player.pre_alpha.score = cur;
+			if(cur >= 1e100) player.pre_alpha.score = cur;
 			Number x = player.upgrade[i + 8].level;
 			player._try_upgrade(i + 8);
 			while(x != player.upgrade[i + 8].level) {
@@ -6045,14 +7516,14 @@ void update(Number s) {
 		bool ok = (player._level_cost(20, player.upgrade[20].level) <= player.pre_alpha.score);
 		Number cur = player.pre_alpha.score;
 		player._try_upgrade_bulk(20);
-		if(cur >= _to_Number(1e100)) player.pre_alpha.score = cur;
+		if(cur >= 1e100) player.pre_alpha.score = cur;
 		Number x = player.upgrade[20].level;
 		player._try_upgrade(20);
 		while(x != player.upgrade[20].level) {
 			x = player.upgrade[20].level;
 			player._try_upgrade(20);
 		}
-		if(ok && !player._get_AM(0)) init_aero();
+		if(ok && !player._get_AM(0)) init_aero(player);
 	}
 	if (((!block_hotkeys && shiftNow && isKeyDown('I'))
 	        || (player.upgrade[21].autobuyer.enabled && player._get_AM(5)))
@@ -6060,14 +7531,14 @@ void update(Number s) {
 		bool ok = (player._level_cost(21, player.upgrade[21].level) <= player.pre_alpha.score);
 		Number cur = player.pre_alpha.score;
 		player._try_upgrade_bulk(21);
-		if(cur >= _to_Number(1e100)) player.pre_alpha.score = cur;
+		if(cur >= 1e100) player.pre_alpha.score = cur;
 		Number x = player.upgrade[21].level;
 		player._try_upgrade(21);
 		while(x != player.upgrade[21].level) {
 			x = player.upgrade[21].level;
 			player._try_upgrade(21);
 		}
-		if(ok && !player._get_AM(0)) init_aero();
+		if(ok && !player._get_AM(0)) init_aero(player);
 	}
 
 	//Time and income calculation.
@@ -6078,13 +7549,20 @@ void update(Number s) {
 	if (effective_s.is_negative() || !std::isfinite(effective_s._to_long_double())) {
 		effective_s = ZERO;
 	}
+	// Alpha Simulator physics: advance every frame while it is unlocked.
+	// This call is what populates the balls (first init) and the live drop
+	// sprites on the board, and banks the SP earned from collisions. Without
+	// it, ball[i].value stays 0 and no drop sprite is ever spawned, so the
+	// board renders as an empty frame.
+	if (player.alpha.unlocked_simulator) player.alpha.simulator.update(effective_s);
 	player.pre_alpha.time += effective_s;
 	player.alpha.time += effective_s;
+	player.beta.time += effective_s;
 
 	// ** BAU4: Passive AP generation.
 	if (player.upgrade[33].level > ZERO && player.fastest_ap_per_min > ZERO) {
-		Number ap_per_min = player.fastest_ap_per_min * player.upgrade[33].level * _to_Number(0.01);
-		Number ap_per_sec = ap_per_min / _to_Number(60.0);
+		Number ap_per_min = player.fastest_ap_per_min * player.upgrade[33].level * 0.01;
+		Number ap_per_sec = ap_per_min / 60.0;
 		player.alpha.point += ap_per_sec * effective_s;
 		player.alpha.point = player.alpha.point.normalize();
 	}
@@ -6096,7 +7574,7 @@ void update(Number s) {
 	for (int i = 0; i < 8; i ++) {
 
 		// Base effect calculation
-		Number a = _to_Number(3)
+		Number a = 3
 		           * player.upgrade[i].level.normalize()
 		           * player._get_aero_effect_a()
 		           * player._get_ach_effect(1)
@@ -6116,18 +7594,8 @@ void update(Number s) {
 		                  * player._get_aero_effect_i()
 		                  * player._get_Am_effect(4);
 
-		// Softcap for exponent
-		if(exp_mult >= _to_Number(5e6)) exp_mult = exp_mult.pow(_to_Number(0.5)) * _to_Number(5e6).pow(_to_Number(0.5));
-
-		//cout << a << " " << exp_mult << " ";
-		//cout << effective_s << " " << a.pow(exp_mult) << " " << a.pow(exp_mult) * effective_s << " " << player.pre_alpha.amount[i] << endl;
-		//if(i == 0) cout << player.pre_alpha.amount[i] << "+" << m_rate[i] << "*" << effective_s << "(=" << m_rate[i] * effective_s << ")=" << player.pre_alpha.amount[i] + m_rate[i] * effective_s << endl << endl;
-		player.pre_alpha.amount[i] = player.pre_alpha.amount[i] + a.pow(exp_mult) * effective_s;
-
-		// CRITICAL FIX: Clamp amount to non-negative
-		if (player.pre_alpha.amount[i].is_negative()) {
-			player.pre_alpha.amount[i] = ZERO;
-		}
+		Number prod_ai = realify( a.pow(exp_mult) );
+		player.pre_alpha.amount[i] = player.pre_alpha.amount[i] + prod_ai * effective_s;
 
 		add = add * player.pre_alpha.amount[i];
 	}
@@ -6137,11 +7605,11 @@ void update(Number s) {
 
 	Number score_delta = rate * effective_s;
 	score_delta = player._get_BD(score_delta, ONE);
-	
+
 	Number score = player.pre_alpha.score;
 	player.pre_alpha.score = player.pre_alpha.score + score_delta;
 	player.pre_alpha.score = player.pre_alpha.score.normalize();
-	
+
 	player.pre_alpha.score = player._get_BD(player.pre_alpha.score, effective_s);
 	player.rate_Number = (player.pre_alpha.score - score) / effective_s;
 
@@ -6158,7 +7626,7 @@ void update(Number s) {
 		Number am_add = ONE;
 		for (int i = 0; i < 8; i++) {
 			// AA base: 3 * AA level * Alpha Amp. Aero effect.
-			Number aa = _to_Number(3)
+			Number aa = 3
 			            * player.upgrade[40 + i].level
 			            * player._get_alpha_aero_effect_a()
 			            * player._get_story_effect(3);
@@ -6166,10 +7634,10 @@ void update(Number s) {
 			if (player.upgrade[36].level.is_one()) {
 				aa = aa * player._get_ach_effect(1);
 			}
-			if (player._get_ach(38)) {
+			if (player._get_SM(1)) {
 				aa = aa * player._get_story_effect(1);
 			}
-			if (player._get_ach(48)) {
+			if (player._get_SM(7)) {
 				Number base = player.pre_alpha.score;
 				Number mult = ONE;
 				if(base >= TEN) {
@@ -6180,6 +7648,8 @@ void update(Number s) {
 				}
 				aa = aa * mult;
 			}
+
+			log_line("aa=" + N2S(aa) + ",");
 
 			// AI exponent: uses AIM_effect and Alpha Int. Aero effect.
 			Number lev_ai = player.upgrade[48 + i].level + ONE;
@@ -6192,11 +7662,6 @@ void update(Number s) {
 
 			player.alpha.amount[i] = player.alpha.amount[i] + am_delta;
 			player.alpha.amount[i] = player.alpha.amount[i].normalize();
-
-
-			if (player.alpha.amount[i].is_negative()) {
-				player.alpha.amount[i] = ONE;
-			}
 
 			am_add = am_add * player.alpha.amount[i];
 
@@ -6211,7 +7676,7 @@ void update(Number s) {
 			player.alpha.am_rate = player.alpha.am_rate * player._get_story_effect(4);
 		}
 		player.alpha.am_rate = player.alpha.am_rate * player._get_BAU8_effect();
-		if (player._get_ach(39)) {
+		if (player._get_SM(2)) {
 			Number base = player.alpha.am_best;
 			if (base > ONE) {
 				Number log10_am = base.log(TEN);
@@ -6220,7 +7685,7 @@ void update(Number s) {
 				}
 			}
 		}
-		if (player._get_ach(40)) {
+		if (player._get_SM(3)) {
 			Number base = player.alpha.point;
 			if (base > ONE) {
 				Number log10_ap = base.log(TEN);
@@ -6231,11 +7696,11 @@ void update(Number s) {
 		}
 		Number am_score_delta = player.alpha.am_rate * effective_s;
 		am_score_delta = player._get_BD(am_score_delta, ONE);
-		
+
 		Number alpha_score = player.alpha.score;
 		player.alpha.score = player.alpha.score + am_score_delta;
 		player.alpha.score = player.alpha.score.normalize();
-		
+
 		player.alpha.score = player._get_BD(player.alpha.score, effective_s);
 
 		player.rate_Number_Am = (player.alpha.score - alpha_score) / effective_s;
@@ -6250,14 +7715,16 @@ void update(Number s) {
 		player.alpha.am_rate = ZERO;
 		for (int i = 0; i < 8; i++) player.alpha.amount[i] = ONE;
 	}
-	
+
+
+
 	// ============================================================
 	// Beta Amplifier / Beta Intensifier Production & Bm Accumulation.
 	// ============================================================
 	if (player.unlocked_beta) {
 		Number bm_add = ONE;
 		for (int i = 0; i < 8; i ++) {
-			Number ba = _to_Number(3)
+			Number ba = 3
 			            * player.upgrade[58 + i].level
 			            * player._get_beta_aero_effect_a()
 			            * player._get_story_effect(3);
@@ -6288,11 +7755,11 @@ void update(Number s) {
 
 		Number bm_score_delta = player.beta.bm_rate * effective_s;
 		bm_score_delta = player._get_BD(bm_score_delta, ONE);
-		
+
 		Number beta_score = player.beta.score;
 		player.beta.score = player.beta.score + bm_score_delta;
 		player.beta.score = player.beta.score.normalize();
-		
+
 		player.beta.score = player._get_BD(player.beta.score, effective_s);
 
 		player.rate_Number_Bm = (player.beta.score - beta_score) / effective_s;
@@ -6304,7 +7771,7 @@ void update(Number s) {
 		if(player.beta.highest_bm < player.beta.score) player.beta.highest_bm = player.beta.score;
 	} else {
 		player.beta.bm_rate = ZERO;
-		for (int i = 0; i < 8; i++) player.alpha.amount[i] = ONE;
+		for (int i = 0; i < 8; i++) player.beta.amount[i] = ONE;
 	}
 
 
@@ -6316,13 +7783,15 @@ void update(Number s) {
 	}
 
 	if (player._get_AM(6) && player.alpha.autobuyer && player.pre_alpha.score >= inf) {
-		init_alpha();
+		init_alpha(player);
 	}
-	
+
 	player.pre_alpha.score = realify(player.pre_alpha.score);
 
 	// Tries to unlock Achs and Stories.
 	player._try_unlock_all();
+
+	if(player._get_ach(40)) player.alpha.unlocked_simulator = true;
 
 	prevP = pNow;
 	prevA = aNow;
@@ -6353,7 +7822,7 @@ static std::string get_save_string() {
 
 	std::string saved_name = player.options[3].val_s;
 	player.options[3].val_s = tmp_path;
-	save_game_state();
+	save_game_state(player);
 	player.options[3].val_s = saved_name;
 	if (player.options[3].val_s.empty()) player.options[3].val_s = "save1.txt";
 
@@ -6374,7 +7843,7 @@ static void load_game_state_from_string(const std::string& data) {
 		f << data;
 		f.close();
 	}
-	load_game_state(tmp_path);
+	load_game_state(tmp_path, player);
 	std::remove(tmp_path.c_str());
 }
 
@@ -6412,147 +7881,153 @@ static std::string paste_from_clipboard() {
 
 //This part is for Read-Save system.
 static long double parse_number(const std::string& s, size_t& pos) {
-    size_t start = pos;
-    if (pos < s.size() && (s[pos] == '-' || s[pos] == '+')) ++pos;
-    while (pos < s.size() &&
-           (std::isdigit((unsigned char)s[pos]) ||
-            s[pos] == '.' || s[pos] == 'e' || s[pos] == 'E')) {
-        if (s[pos] == 'e' || s[pos] == 'E') {
-            ++pos;
-            if (pos < s.size() && (s[pos] == '-' || s[pos] == '+')) ++pos;
-            while (pos < s.size() && std::isdigit((unsigned char)s[pos])) ++pos;
-            break;
-        }
-        ++pos;
-    }
-    if (pos == start) return 0.0L;
-    return std::stold(s.substr(start, pos - start));
+	size_t start = pos;
+	if (pos < s.size() && (s[pos] == '-' || s[pos] == '+')) ++pos;
+	while (pos < s.size() &&
+	        (std::isdigit((unsigned char)s[pos]) ||
+	         s[pos] == '.' || s[pos] == 'e' || s[pos] == 'E')) {
+		if (s[pos] == 'e' || s[pos] == 'E') {
+			++pos;
+			if (pos < s.size() && (s[pos] == '-' || s[pos] == '+')) ++pos;
+			while (pos < s.size() && std::isdigit((unsigned char)s[pos])) ++pos;
+			break;
+		}
+		++pos;
+	}
+	if (pos == start) return 0.0L;
+	return std::stold(s.substr(start, pos - start));
 }
 
 static Real parse_Real(const std::string& s) {
-    std::string str;
-    str.reserve(s.size());
-    for (char c : s) if (!std::isspace((unsigned char)c)) str += c;
-    if (str.empty()) return Real();
+	std::string str;
+	str.reserve(s.size());
+	for (char c : s) if (!std::isspace((unsigned char)c)) str += c;
+	if (str.empty()) return Real();
 
-    bool sign = true;
-    if (str.size() >= 2 && str[0] == '1' && str[1] == '/') {
-        sign = false;
-        str = str.substr(2);
-    }
+	bool sign = true;
+	if (str.size() >= 2 && str[0] == '1' && str[1] == '/') {
+		sign = false;
+		str = str.substr(2);
+	}
 
-    if (str.size() >= 3 && str.compare(0, 2, "N(") == 0 && str.back() == ')') {
-        std::string inner = str.substr(2, str.size() - 3);
+	if (str.size() >= 3 && str.compare(0, 2, "N(") == 0 && str.back() == ')') {
+		std::string inner = str.substr(2, str.size() - 3);
 
-        std::vector<std::string> parts;
-        int depth = 0;
-        size_t start = 0;
-        for (size_t k = 0; k < inner.size(); ++k) {
-            char c = inner[k];
-            if (c == '(') ++depth;
-            else if (c == ')') --depth;
-            else if (c == ',' && depth == 0) {
-                parts.push_back(inner.substr(start, k - start));
-                start = k + 1;
-            }
-        }
-        parts.push_back(inner.substr(start));
-        if (parts.size() != 4) return Real();
+		std::vector<std::string> parts;
+		int depth = 0;
+		size_t start = 0;
+		for (size_t k = 0; k < inner.size(); ++k) {
+			char c = inner[k];
+			if (c == '(') ++depth;
+			else if (c == ')') --depth;
+			else if (c == ',' && depth == 0) {
+				parts.push_back(inner.substr(start, k - start));
+				start = k + 1;
+			}
+		}
+		parts.push_back(inner.substr(start));
+		if (parts.size() != 4) return Real();
 
-        try {
-            long double v  = std::stold(parts[0]);
-            uint64_t    l  = (uint64_t)std::stoull(parts[1]);
-            bool        sg = (parts[2] == "1");
-            int         n  = (parts[3] == "1") ? 1 : -1;
-            if (!sign) sg = !sg;
-            return Real(sg, n, v, (long double)l).normalize();
-        } catch (...) {
-            return Real();
-        }
-    }
+		try {
+			long double v  = std::stold(parts[0]);
+			uint64_t    l  = (uint64_t)std::stoull(parts[1]);
+			bool        sg = (parts[2] == "1");
+			int         n  = (parts[3] == "1") ? 1 : -1;
+			if (!sign) sg = !sg;
+			return Real(sg, n, v, (long double)l).normalize();
+		} catch (...) {
+			return Real();
+		}
+	}
 
-    try {
-        long double val = std::stold(str);
-        if (val < 0.0L) {
-            sign = !sign;
-            val  = -val;
-        }
-        return Real(sign, val, 0.0L).normalize();
-    } catch (...) {
-        return Real();
-    }
+	try {
+		long double val = std::stold(str);
+		if (val < 0.0L) {
+			sign = !sign;
+			val  = -val;
+		}
+		return Real(sign, val, 0.0L).normalize();
+	} catch (...) {
+		return Real();
+	}
 }
 
 static Real read_Real(const std::string& s) {
-    std::string str;
-    str.reserve(s.size());
-    for (char c : s) if (!std::isspace((unsigned char)c)) str += c;
-    return parse_Real(str);
+	std::string str;
+	str.reserve(s.size());
+	for (char c : s) if (!std::isspace((unsigned char)c)) str += c;
+	return parse_Real(str);
 }
 
 static Number read_Number(const std::string& s) {
-    if (s.empty() || s == "0") return Number();
+	if (s.empty() || s == "0") return Number();
 
-    if (s.back() == 'i') {
-        std::string t = s.substr(0, s.size() - 1);
+	if (s.back() == 'i') {
+		std::string t = s.substr(0, s.size() - 1);
 
-        int split = -1;
-        for (int k = (int)t.size() - 1; k > 0; --k) {
-            if (t[k] == '+' || t[k] == '-') { split = k; break; }
-        }
+		int split = -1;
+		for (int k = (int)t.size() - 1; k > 0; --k) {
+			if (t[k] == '+' || t[k] == '-') {
+				split = k;
+				break;
+			}
+		}
 
-        std::string real_str, imag_str;
-        if (split == -1) {
-            real_str.clear();
-            imag_str = t;
-        } else {
-            real_str = t.substr(0, split);
-            imag_str = t.substr(split);
-        }
+		std::string real_str, imag_str;
+		if (split == -1) {
+			real_str.clear();
+			imag_str = t;
+		} else {
+			real_str = t.substr(0, split);
+			imag_str = t.substr(split);
+		}
 
-        Real re = real_str.empty() ? ZERO : parse_Real(real_str);
+		Real re = real_str.empty() ? ZERO : parse_Real(real_str);
 
-        Real im;
-        if (imag_str.empty() || imag_str == "+") im = ONE;
-        else if (imag_str == "-")                 im = ZERO - ONE;
-        else                                      im = parse_Real(imag_str);
+		Real im;
+		if (imag_str.empty() || imag_str == "+") im = ONE;
+		else if (imag_str == "-")                 im = ZERO - ONE;
+		else                                      im = parse_Real(imag_str);
 
-        return Number(re, im);
-    }
+		return Number(re, im);
+	}
 
-    return Number(parse_Real(s), ZERO);
+	return Number(parse_Real(s), ZERO);
 }
 
 
 static Number parse_Number(const std::string& s) {
-    std::string str;
-    str.reserve(s.size());
-    for (char c : s) if (!std::isspace((unsigned char)c)) str += c;
-    if (str.empty()) return Number();
+	std::string str;
+	str.reserve(s.size());
+	for (char c : s) if (!std::isspace((unsigned char)c)) str += c;
+	if (str.empty()) return Number();
 
-    if (str.size() >= 4 && str.compare(0, 2, "C(") == 0 && str.back() == ')') {
-        std::string inner = str.substr(2, str.size() - 3);
+	if (str.size() >= 4 && str.compare(0, 2, "C(") == 0 && str.back() == ')') {
+		std::string inner = str.substr(2, str.size() - 3);
 
-        int depth = 0;
-        size_t comma = std::string::npos;
-        for (size_t k = 0; k < inner.size(); ++k) {
-            char c = inner[k];
-            if (c == '(') ++depth;
-            else if (c == ')') --depth;
-            else if (c == ',' && depth == 0) { comma = k; break; }
-        }
-        if (comma == std::string::npos) return Number();
+		int depth = 0;
+		size_t comma = std::string::npos;
+		for (size_t k = 0; k < inner.size(); ++k) {
+			char c = inner[k];
+			if (c == '(') ++depth;
+			else if (c == ')') --depth;
+			else if (c == ',' && depth == 0) {
+				comma = k;
+				break;
+			}
+		}
+		if (comma == std::string::npos) return Number();
 
-        Real re = parse_Real(inner.substr(0, comma));
-        Real im = parse_Real(inner.substr(comma + 1));
-        return Number(re, im);
-    }
+		Real re = parse_Real(inner.substr(0, comma));
+		Real im = parse_Real(inner.substr(comma + 1));
+		return Number(re, im);
+	}
 
-    if (str.size() >= 3 && str.compare(0, 2, "N(") == 0 && str.back() == ')') {
-        return Number(parse_Real(str), ZERO);
-    }
+	if (str.size() >= 3 && str.compare(0, 2, "N(") == 0 && str.back() == ')') {
+		return Number(parse_Real(str), ZERO);
+	}
 
-    return read_Number(str);
+	return read_Number(str);
 }
 
 // Windows: MoveFileExA + MOVEFILE_REPLACE_EXISTING + MOVEFILE_WRITE_THROUGH
@@ -6597,7 +8072,7 @@ static bool copy_file_contents(const string& src, const string& dst) {
 // Fixed Save/Load System for Options and Game State
 // ----------------------------------------------------------------------
 
-void save_options() {
+void save_options(player_& player) {
 	const string opt_target = "options.txt";
 	const string opt_tmp    = opt_target + ".tmp";
 
@@ -6640,7 +8115,7 @@ void save_options() {
 	}
 }
 
-void load_options() {
+void load_options(player_& player) {
 	const char* opt_paths[] = { "options.txt", "options.txt.tmp" };
 	bool loaded = false;
 
@@ -6724,18 +8199,18 @@ void load_options() {
 		cout << "[INFO] No valid options found. Setting defaults." << endl;
 
 		player.options[0].val = ZERO;          // Mode: Seconds
-		player.options[1].val = _to_Number(60); // Amount: 60s
-		player.options[2].val = _to_Number(10); // Amount: 10%
-		player.options[3].val_s = "save1.txt";  // Savefile name
-		player.options[4].val = _to_Number(0);  // BGM Index
-		player.options[5].val = _to_Number(50); // BGM Volume
+		player.options[1].val = 60;            // Amount: 60s
+		player.options[2].val = 10;            // Amount: 10%
+		player.options[3].val_s = "save1.txt"; // Savefile name
+		player.options[4].val = 0;             // BGM Index
+		player.options[5].val = 50;            // BGM Volume
 
 		// Immediately save these defaults so they persist
-		save_options();
+		save_options(player);
 	}
 }
 
-void save_game_state() {
+void save_game_state(player_& player) {
 	if (player.options[3].val_s.empty()) {
 		player.options[3].val_s = "save1.txt";
 	}
@@ -6758,17 +8233,17 @@ void save_game_state() {
 		fprintf(save1, "%s\n", N2S_save(player.upgrade[i].scale).c_str());
 
 		fprintf(save1, "upg_auto %d\n", i);
-		fprintf(save1, "%s\n", N2S_save(_to_Number(player.upgrade[i].autobuyer.enabled)).c_str());
+		fprintf(save1, "%s\n", N2S_save(Number(player.upgrade[i].autobuyer.enabled)).c_str());
 	}
 
 	// Save Achievements & Stories
-	for (int i = 1; i <= 50; i++) {
+	for (int i = 1; i <= 52; i++) {
 		fprintf(save1, "ach %d\n", i);
-		fprintf(save1, "%s\n", N2S_save(_to_Number(bool(player.ach[i]))).c_str());
+		fprintf(save1, "%s\n", N2S_save(Number(player.ach[i])).c_str());
 	}
-	for (int i = 1; i <= 5; i++) {
+	for (int i = 1; i <= 6; i++) {
 		fprintf(save1, "story %d\n", i);
-		fprintf(save1, "%s\n", N2S_save(_to_Number(bool(player.story[i]))).c_str());
+		fprintf(save1, "%s\n", N2S_save(Number(player.story[i])).c_str());
 	}
 
 	// Save Pre-Alpha State
@@ -6784,24 +8259,51 @@ void save_game_state() {
 	fprintf(save1, "PF\n%s\n", N2S_save(player.PF).c_str());
 
 	// Save Time & Tabs
-	fprintf(save1, "last_tick\n%s\n", N2S_save(_to_Number(player.last_tick)).c_str());
-	fprintf(save1, "currenttab\n%s\n", N2S_save(_to_Number(player.currenttab)).c_str());
-	fprintf(save1, "unlockedtabs\n%s\n", N2S_save(_to_Number(player.unlockedtabs)).c_str());
-	fprintf(save1, "unlocked_prestige\n%s\n", N2S_save(_to_Number(bool(player.unlocked_prestige))).c_str());
+	fprintf(save1, "last_tick\n%s\n", N2S_save(Number(player.last_tick)).c_str());
+	fprintf(save1, "currenttab\n%s\n", N2S_save(Number(player.currenttab)).c_str());
+	fprintf(save1, "unlockedtabs\n%s\n", N2S_save(Number(player.unlockedtabs)).c_str());
+	fprintf(save1, "unlocked_prestige\n%s\n", N2S_save(Number(player.unlocked_prestige)).c_str());
 
 	// Save Time Flux
-	fprintf(save1, "time_flux\n%s\n", N2S_save(_to_Number(player.time_flux)).c_str());
-	fprintf(save1, "flux_pool\n%s\n", N2S_save(_to_Number(flux_pool)).c_str());
-	fprintf(save1, "flux_elapsed\n%s\n", N2S_save(_to_Number(flux_elapsed)).c_str());
+	fprintf(save1, "time_flux\n%s\n", N2S_save(Number(player.time_flux)).c_str());
+	fprintf(save1, "flux_pool\n%s\n", N2S_save(Number(flux_pool)).c_str());
+	fprintf(save1, "flux_elapsed\n%s\n", N2S_save(Number(flux_elapsed)).c_str());
 
 	// Save Alpha State
-	fprintf(save1, "unlocked_alpha\n%s\n", N2S_save(_to_Number(bool(player.unlocked_alpha))).c_str());
-	fprintf(save1, "break_alpha\n%s\n", N2S_save(_to_Number(bool(player.break_alpha))).c_str());
+	fprintf(save1, "unlocked_alpha\n%s\n", N2S_save(Number(player.unlocked_alpha)).c_str());
+	fprintf(save1, "unlocked_simulator\n%s\n", N2S_save(Number(player.alpha.unlocked_simulator)).c_str());
+	// Persist the Alpha Simulator ball states: value / x / y / spawn (life) each.
+	for (int i = 0; i < 20; ++i) {
+		fprintf(save1, "sim_ball %d\n", i);
+		fprintf(save1, "%s %s %s %s\n",
+		        N2S_save(player.alpha.simulator.ball[i].value).c_str(),
+		        N2S_save(player.alpha.simulator.ball[i].x).c_str(),
+		        N2S_save(player.alpha.simulator.ball[i].y).c_str(),
+		        N2S_save(player.alpha.simulator.ball[i].spawn).c_str());
+	}
+
+	// ---- Persist Alpha Simulator progress (level / score / accumulate / drops / upgrade levels) ----
+	fprintf(save1, "sim_level\n%s\n", N2S_save(player.alpha.simulator.level).c_str());
+	fprintf(save1, "sim_score\n%s\n", N2S_save(player.alpha.simulator.score).c_str());
+	fprintf(save1, "sim_accumulate\n%s\n", N2S_save(player.alpha.simulator.accumulate).c_str());
+	for (int t = 1; t <= 100; t++) {
+		if (player.alpha.simulator.drops[t] > ZERO)
+			fprintf(save1, "sim_drop_%d\n%s\n", t, N2S_save(player.alpha.simulator.drops[t]).c_str());
+	}
+	for (int i = 1; i <= 100; i++)
+		for (int j = 0; j <= 3; j++)
+			if (player.alpha.simulator.level_drops[i][j].level > ZERO)
+				fprintf(save1, "sim_ld_%d_%d\n%s\n", i, j, N2S_save(player.alpha.simulator.level_drops[i][j].level).c_str());
+	for (int a = 0; a <= 1; a++)
+		for (int j = 0; j <= 2; j++)
+			if (player.alpha.simulator.level_global[a][j].level > ZERO)
+				fprintf(save1, "sim_lg_%d_%d\n%s\n", a, j, N2S_save(player.alpha.simulator.level_global[a][j].level).c_str());
+	fprintf(save1, "break_alpha\n%s\n", N2S_save(Number(player.break_alpha)).c_str());
 	fprintf(save1, "alpha_point\n%s\n", N2S_save(player.alpha.point).c_str());
 	fprintf(save1, "alpha_count\n%s\n", N2S_save(player.alpha.alpha).c_str());
 	fprintf(save1, "alpha_highest\n%s\n", N2S_save(player.alpha.highest).c_str());
-	fprintf(save1, "alpha_tab\n%s\n", N2S_save(_to_Number(player.alpha.tab)).c_str());
-	fprintf(save1, "alpha_auto\n%s\n", N2S_save(_to_Number(player.alpha.autobuyer)).c_str());
+	fprintf(save1, "alpha_tab\n%s\n", N2S_save(Number(player.alpha.tab)).c_str());
+	fprintf(save1, "alpha_auto\n%s\n", N2S_save(Number(player.alpha.autobuyer)).c_str());
 	fprintf(save1, "fastest_ap\n%s\n", N2S_save(player.fastest_ap_per_min).c_str());
 
 	fprintf(save1, "alpha_score\n%s\n", N2S_save(player.alpha.score).c_str());
@@ -6813,12 +8315,12 @@ void save_game_state() {
 	}
 
 	// Save Beta game state.
-	fprintf(save1, "unlocked_beta\n%s\n", N2S_save(_to_Number(bool(player.unlocked_beta))).c_str());
+	fprintf(save1, "unlocked_beta\n%s\n", N2S_save(Number(player.unlocked_beta)).c_str());
 	fprintf(save1, "beta_point\n%s\n", N2S_save(player.beta.point).c_str());
 	fprintf(save1, "beta_count\n%s\n", N2S_save(player.beta.beta).c_str());
 	fprintf(save1, "beta_highest\n%s\n", N2S_save(player.beta.highest).c_str());
-	fprintf(save1, "beta_tab\n%s\n", N2S_save(_to_Number(player.beta.tab)).c_str());
-	fprintf(save1, "beta_auto\n%s\n", N2S_save(_to_Number(player.beta.autobuyer)).c_str());
+	fprintf(save1, "beta_tab\n%s\n", N2S_save(Number(player.beta.tab)).c_str());
+	fprintf(save1, "beta_auto\n%s\n", N2S_save(Number(player.beta.autobuyer)).c_str());
 	fprintf(save1, "fastest_bp\n%s\n", N2S_save(player.fastest_bp_per_min).c_str());
 
 	fprintf(save1, "beta_score\n%s\n", N2S_save(player.beta.score).c_str());
@@ -6829,7 +8331,9 @@ void save_game_state() {
 	for (int i = 0; i < 8; ++i) {
 		fprintf(save1, "beta_amount %d\n%s\n", i, N2S_save(player.beta.amount[i]).c_str());
 	}
-
+	for (int i = 0; i < 4; ++i) {
+		fprintf(save1, "beta_weight %d\n%s\n", i, N2S_save(player.beta.weights[i]).c_str());
+	}
 	if (!flush_and_close(save1)) {
 		remove(tmp.c_str());
 		return;
@@ -6841,7 +8345,7 @@ void save_game_state() {
 	}
 }
 
-void load_game_state(const string& filename) {
+void load_game_state(const string& filename, player_& player) {
 	FILE* save1 = fopen(filename.c_str(), "r");
 	if (!save1) {
 		// If save file doesn't exist, try backup or tmp
@@ -6861,7 +8365,7 @@ void load_game_state(const string& filename) {
 			}
 		}
 		if (!save1) {
-			init(); // Initialize new game if no save exists
+			init(player); // Initialize new game if no save exists
 			return;
 		}
 	}
@@ -6957,13 +8461,13 @@ void load_game_state(const string& filename) {
 				string val_ = read_line();
 				player.alpha.tab = static_cast<int>(parse_Number(val_)._to_long_double());
 			} else if (line.substr(0, 4) == "ach ") {
-			    int id = atoi(line.substr(4).c_str());
-			    string val_ = read_line();
-			    if (id < 1000) player.ach[id] = (parse_Number(val_)._to_long_double() > 0.5);
+				int id = atoi(line.substr(4).c_str());
+				string val_ = read_line();
+				if (id < 1000) player.ach[id] = (parse_Number(val_)._to_long_double() > 0.5);
 			} else if (line.substr(0, 6) == "story ") {
-			    int id = atoi(line.substr(6).c_str());
-			    string val_ = read_line();
-			    if (id < 1000) player.story[id] = (parse_Number(val_)._to_long_double() > 0.5);
+				int id = atoi(line.substr(6).c_str());
+				string val_ = read_line();
+				if (id < 1000) player.story[id] = (parse_Number(val_)._to_long_double() > 0.5);
 			} else if (line == "alpha_auto") {
 				string val_ = read_line();
 				player.alpha.autobuyer = (parse_Number(val_)._to_long_double() > 0.5);
@@ -7026,6 +8530,46 @@ void load_game_state(const string& filename) {
 				int id = atoi(line.substr(12).c_str());
 				string val_ = read_line();
 				if(id < 8) player.beta.amount[id] = parse_Number(val_);
+			} else if (line.substr(0, 11) == "beta_weight") {
+				int id = atoi(line.substr(12).c_str());
+				string val_ = read_line();
+				if (id >= 0 && id < 4) player.beta.weights[id] = parse_Number(val_);
+
+			} else if (line == "sim_level") {
+				string val_ = read_line();
+				player.alpha.simulator.level = parse_Number(val_);
+			} else if (line == "sim_score") {
+				string val_ = read_line();
+				player.alpha.simulator.score = parse_Number(val_);
+			} else if (line == "sim_accumulate") {
+				string val_ = read_line();
+				player.alpha.simulator.accumulate = parse_Number(val_);
+			} else if (line.substr(0, 9) == "sim_drop_") {
+				int id = atoi(line.substr(9).c_str());
+				string val_ = read_line();
+				if (id >= 1 && id <= 100) player.alpha.simulator.drops[id] = parse_Number(val_);
+			} else if (line.substr(0, 7) == "sim_ld_") {
+				int i2 = 0, j2 = 0;
+				sscanf(line.c_str(), "sim_ld_%d_%d", &i2, &j2);
+				string val_ = read_line();
+				if (i2 >= 1 && i2 <= 100 && j2 >= 0 && j2 <= 3) player.alpha.simulator.level_drops[i2][j2].level = parse_Number(val_);
+			} else if (line.substr(0, 7) == "sim_lg_") {
+				int a2 = 0, j2 = 0;
+				sscanf(line.c_str(), "sim_lg_%d_%d", &a2, &j2);
+				string val_ = read_line();
+				if (a2 >= 0 && a2 <= 1 && j2 >= 0 && j2 <= 2) player.alpha.simulator.level_global[a2][j2].level = parse_Number(val_);
+			} else if (line.substr(0, 8) == "sim_ball") {
+				int id = atoi(line.substr(9).c_str());
+				string val_ = read_line();
+				if (id >= 0 && id < 20) {
+					std::istringstream iss(val_);
+					string t0, t1, t2, t3;
+					iss >> t0 >> t1 >> t2 >> t3;
+					if (!t0.empty()) player.alpha.simulator.ball[id].value = parse_Number(t0);
+					if (!t1.empty()) player.alpha.simulator.ball[id].x     = parse_Number(t1);
+					if (!t2.empty()) player.alpha.simulator.ball[id].y     = parse_Number(t2);
+					if (!t3.empty()) player.alpha.simulator.ball[id].spawn = parse_Number(t3);
+				}
 			}
 
 
@@ -7033,33 +8577,50 @@ void load_game_state(const string& filename) {
 		}
 	} catch (...) {
 		fclose(save1);
-		init(); // Reset on error
+		init(player); // Reset on error
 		return;
-
-
 	}
 
+	float w[4];
+	for (int i = 0; i < 4; ++i) {
+		w[i] = (float)player.beta.weights[i]._to_long_double();
+		if (w[i] < -1.0f) w[i] = -1.0f;
+		if (w[i] >  1.0f) w[i] =  1.0f;
+	}
+	float sum = w[0] + w[1] + w[2] + w[3];
+	if (sum < -1.0f) {
+		float deficit = (-1 * player._get_BE() - sum) / 4.0f;
+		for (int i = 0; i < 4; ++i) {
+			w[i] += deficit;
+			if (w[i] > 1.0f) w[i] = 1.0f;
+		}
+	}
+	for (int i = 0; i < 4; ++i) player.beta.weights[i] = (long double)w[i];
+
 	player.last_tick = _get_time();
-	cost_init(); // Re-initialize costs based on loaded upgrades
+	cost_init(player); // Re-initialize costs based on loaded upgrades
+	player.alpha.simulator.cost_init();
+	player.alpha.simulator.am_ref = &player.alpha.score; // Am for Global(Am) buys
+	player.alpha.simulator.ap_ref = &player.alpha.point; // AP for Global(AP) buys
 	fclose(save1);
 }
 
 // Unified Read Function
 void read() {
 	// 1. Load Options first, because they determine the save file name
-	load_options();
+	load_options(player);
 
 	// 2. Load Game State using the filename from options
 	string savefile = player.options[3].val_s;
 	if (savefile.empty()) savefile = "save1.txt";
 
-	load_game_state(savefile);
+	load_game_state(savefile, player);
 }
 
 // Unified Save Function
 void save() {
-	save_options();
-	save_game_state();
+	save_options(player);
+	save_game_state(player);
 }
 
 BOOL WINAPI HandlerRoutine(DWORD dwCtrlType) {
@@ -7092,22 +8653,23 @@ void loop() {
 		long double interval = tick - player.last_tick;
 
 		if (interval < 0) interval = 0;
+		if (interval > 1000.0L) interval = 1000.0L;   // Clamp a stall/breakpoint spike so one frame cannot inject a huge delta into production/time.
 
 		player.last_tick = tick;
 
-		update(_to_Number(interval / 1000));
+		update(player, interval / 1000);
 
 		Sleep(20);
 
 #ifdef _WIN32
 		if (g_use_gui) {
 			if (!g_gui_running) break;
-			GUI_RenderFrame();
+			GUI_RenderFrame(player);
 		}
 #endif
 
 		if (tick - last_save_tick > 10000) {
-			cost_init();
+			cost_init(player);
 			save();
 			last_save_tick = tick;
 		}
@@ -7122,7 +8684,7 @@ int main() {
 	freopen("CONIN$", "r", stdin);
 	*/
 	log_init();
-	cost_init();
+	cost_init(player);
 
 #ifdef _WIN32
 	g_use_gui = true;
